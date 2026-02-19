@@ -1,0 +1,40 @@
+const mongoose = require('mongoose');
+
+const UserSchema = new mongoose.Schema({
+    username: {
+        type: String,
+        required: true,
+        unique: true
+    },
+    email: {
+        type: String,
+        required: true,
+        unique: true
+    },
+    password: {
+        type: String,
+        required: true
+    },
+    avatar: {
+        type: String,
+        default: ""
+    },
+    avatarImage: {
+        type: String,
+        default: ""
+    },
+    about: {
+        type: String,
+        default: "Hey there! I am using WhatsApp."
+    },
+    status: {
+        type: String,
+        default: "offline"
+    },
+    lastSeen: {
+        type: Date,
+        default: Date.now
+    }
+}, { timestamps: true });
+
+module.exports = mongoose.model('User', UserSchema);
