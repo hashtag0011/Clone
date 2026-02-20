@@ -1,6 +1,6 @@
 
-import React, { useState, useRef } from "react";
-import { BsSearch, BsThreeDots, BsBoxArrowRight, BsCamera, BsPencil } from "react-icons/bs";
+import React, { useState, useRef, useEffect } from "react";
+import { BsSearch, BsGearFill, BsBoxArrowRight, BsCamera, BsChatDotsFill, BsTelephone, BsCameraVideo, BsTelephoneOutbound, BsTelephoneInbound } from "react-icons/bs";
 import axios from "axios";
 import FileTransfer from "../utils/FileTransfer";
 
@@ -12,10 +12,13 @@ export default function Sidebar({
     searchQuery, setSearchQuery, updateCurrentUser
 }) {
     const [showMenu, setShowMenu] = useState(false);
+    const [activeTab, setActiveTab] = useState("messages");
     const [uploading, setUploading] = useState(false);
+    const [callHistory, setCallHistory] = useState([]);
+    const [loadingCalls, setLoadingCalls] = useState(false);
     const fileInputRef = useRef(null);
 
-    if (!currentUser) return null;
+
 
     const isOnline = (userId) => onlineUsers.some((u) => u.userId === userId);
     const isTyping = (userId) => typingUsers.includes(userId);
@@ -35,28 +38,49 @@ export default function Sidebar({
         return a.username.localeCompare(b.username);
     });
 
+    // Fetch call history
+    useEffect(() => {
+        if (activeTab === "calls" && currentUser) {
+            setLoadingCalls(true);
+            axios.get(`${API}/api/messages/calls/${currentUser._id}`)
+                .then((res) => {
+                    setCallHistory(res.data);
+                    setLoadingCalls(false);
+                })
+                .catch((err) => {
+                    console.error(err);
+                    setLoadingCalls(false);
+                });
+        }
+    }, [activeTab, currentUser]);
+
     const formatTime = (dateString) => {
         if (!dateString) return "";
         const d = new Date(dateString);
-        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        const now = new Date();
+        const diffDays = Math.floor((now - d) / (1000 * 60 * 60 * 24));
+
+        if (diffDays === 0) {
+            return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        } else if (diffDays === 1) {
+            return "yesterday";
+        } else if (diffDays < 7) {
+            return d.toLocaleDateString([], { weekday: 'long' });
+        } else {
+            return d.toLocaleDateString([], { month: '2-digit', day: '2-digit', year: 'numeric' });
+        }
     };
 
     const handleAvatarUpload = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
         setUploading(true);
-
         try {
-            // Use FileTransfer package
             const { fileName } = await FileTransfer.upload(file);
-
-            // Update user profile
             const { data } = await axios.put(`${API}/api/users/${currentUser._id}`, {
                 userId: currentUser._id,
                 avatarImage: fileName,
             });
-
-            // Update local state (parent)
             updateCurrentUser(data);
             localStorage.setItem("chat-app-user", JSON.stringify(data));
         } catch (err) { console.error(err); }
@@ -70,152 +94,327 @@ export default function Sidebar({
         return `https://api.multiavatar.com/${user.username}.png`;
     };
 
+    const getContactById = (id) => contacts.find(c => c._id === id);
+
+    const getCallContact = (call) => {
+        // Find the conversation for this call
+        const conv = conversations.find(c => c._id === call.conversationId);
+        if (!conv) return null;
+        const otherMemberId = conv.members.find(m => m !== currentUser._id);
+        return getContactById(otherMemberId);
+    };
+
+    // Group calls by contact for display
+    const getGroupedCalls = () => {
+        const grouped = {};
+        callHistory.forEach(call => {
+            const contact = getCallContact(call);
+            if (!contact) return;
+            if (!grouped[contact._id]) {
+                grouped[contact._id] = { contact, calls: [] };
+            }
+            grouped[contact._id].calls.push(call);
+        });
+        return Object.values(grouped);
+    };
+
+    if (!currentUser) return null;
+
     return (
-        <div className="w-[350px] min-w-[320px] flex flex-col h-full border-r border-ios-separator/20 bg-ios-surface/40 backdrop-blur-xl">
+        <div className="w-[380px] min-w-[340px] flex flex-col h-full bg-white/40 backdrop-blur-md border-r border-white/30 z-20">
             {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-ios-separator/10">
-                <div className="flex items-center gap-3">
-                    <div className="relative group cursor-pointer" onClick={() => fileInputRef.current.click()}>
-                        <img
-                            src={getAvatarUrl(currentUser)}
-                            alt="avatar"
-                            className="w-10 h-10 rounded-full border-2 border-ios-primary shadow-lg shadow-ios-primary/20 object-cover"
-                            onError={(e) => { e.target.src = `https://ui-avatars.com/api/?name=${currentUser.username}&background=0D8ABC&color=fff`; }}
-                        />
-                        <div className="absolute inset-0 bg-black/40 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                            <BsCamera className="text-white text-xs" />
-                        </div>
-                        <input
-                            type="file"
-                            ref={fileInputRef}
-                            onChange={handleAvatarUpload}
-                            disabled={uploading}
-                            className="hidden"
-                            accept="image/*"
-                        />
-                        <span className="absolute bottom-0 right-0 w-3 h-3 bg-ios-success border-2 border-black rounded-full shadow-sm"></span>
-                    </div>
-                    <span className="text-white font-semibold text-lg tracking-wide">
-                        {currentUser.username}
-                    </span>
-                </div>
-
-                <div className="relative">
-                    <button
-                        onClick={() => setShowMenu(!showMenu)}
-                        className="p-2 rounded-full hover:bg-white/10 transition-colors duration-200"
-                    >
-                        <BsThreeDots className="text-ios-primary text-xl" />
+            <div className="flex items-center justify-between px-6 py-5">
+                <h1 className="text-2xl font-bold text-chatx-primary tracking-tight">Chatx</h1>
+                <div className="flex items-center gap-2">
+                    <button className="p-2 rounded-full hover:bg-white/40 transition-colors">
+                        <BsSearch className="text-chatx-text-secondary text-lg" />
                     </button>
-                    {showMenu && (
-                        <div className="absolute right-0 mt-2 w-48 bg-ios-surface/90 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl py-1 z-50 overflow-hidden transform origin-top-right animate-scale-in">
-                            <button
-                                onClick={onLogout}
-                                className="flex items-center gap-3 w-full px-4 py-3 text-sm text-ios-danger hover:bg-white/5 transition-colors"
-                            >
-                                <BsBoxArrowRight className="text-lg" />
-                                <span>Logout</span>
-                            </button>
-                        </div>
-                    )}
-                </div>
-            </div>
-
-            {/* Search Bar */}
-            <div className="px-4 py-3">
-                <div className="relative group">
-                    <BsSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-ios-text-secondary group-focus-within:text-ios-primary transition-colors" />
-                    <input
-                        type="text"
-                        placeholder="Search"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="w-full bg-ios-input text-white text-sm rounded-lg pl-10 pr-4 py-2 placeholder-ios-text-secondary/60 focus:ring-2 focus:ring-ios-primary/50 transition-all outline-none"
-                    />
-                </div>
-            </div>
-
-            {/* Contact List */}
-            <div className="flex-1 overflow-y-auto px-2 space-y-1 pb-2">
-                {sortedContacts.length === 0 && (
-                    <div className="flex flex-col items-center justify-center h-40 text-ios-text-secondary opacity-60">
-                        <BsSearch className="text-3xl mb-2" />
-                        <p className="text-sm">No contacts found</p>
+                    <div className="relative">
+                        <button
+                            onClick={() => setShowMenu(!showMenu)}
+                            className="p-2 rounded-full hover:bg-white/40 transition-colors"
+                        >
+                            <BsGearFill className="text-chatx-text-secondary text-lg" />
+                        </button>
+                        {showMenu && (
+                            <div className="absolute right-0 mt-2 w-48 bg-white/80 backdrop-blur-xl border border-white/40 rounded-xl shadow-xl py-1 z-50 overflow-hidden animate-scale-in">
+                                {/* Avatar Upload */}
+                                <button
+                                    onClick={() => fileInputRef.current.click()}
+                                    className="flex items-center gap-3 w-full px-4 py-3 text-sm text-chatx-text hover:bg-white/50 transition-colors"
+                                >
+                                    <BsCamera className="text-lg" />
+                                    <span>Change Avatar</span>
+                                </button>
+                                <input
+                                    type="file"
+                                    ref={fileInputRef}
+                                    onChange={handleAvatarUpload}
+                                    disabled={uploading}
+                                    className="hidden"
+                                    accept="image/*"
+                                />
+                                <div className="h-px bg-white/30 mx-2" />
+                                <button
+                                    onClick={onLogout}
+                                    className="flex items-center gap-3 w-full px-4 py-3 text-sm text-chatx-danger hover:bg-white/50 transition-colors"
+                                >
+                                    <BsBoxArrowRight className="text-lg" />
+                                    <span>Logout</span>
+                                </button>
+                            </div>
+                        )}
                     </div>
+                </div>
+            </div>
+
+            {/* Tabs - Messages / Calls / Groups */}
+            <div className="px-6 pb-4">
+                <div className="flex bg-white/30 backdrop-blur-sm rounded-full p-1 border border-white/20">
+                    <button
+                        onClick={() => setActiveTab("messages")}
+                        className={`flex-1 py-2 px-3 rounded-full text-sm font-semibold transition-all duration-200 ${activeTab === "messages"
+                            ? "bg-white/80 text-chatx-primary shadow-sm"
+                            : "text-chatx-text-secondary hover:text-chatx-text"
+                            }`}
+                    >
+                        Messages
+                    </button>
+                    <button
+                        onClick={() => setActiveTab("calls")}
+                        className={`flex-1 py-2 px-3 rounded-full text-sm font-semibold transition-all duration-200 flex items-center justify-center gap-1.5 ${activeTab === "calls"
+                            ? "bg-white/80 text-chatx-primary shadow-sm"
+                            : "text-chatx-text-secondary hover:text-chatx-text"
+                            }`}
+                    >
+                        <BsTelephone className="text-xs" />
+                        Calls
+                    </button>
+                    <button
+                        onClick={() => setActiveTab("groups")}
+                        className={`flex-1 py-2 px-3 rounded-full text-sm font-semibold transition-all duration-200 ${activeTab === "groups"
+                            ? "bg-white/80 text-chatx-primary shadow-sm"
+                            : "text-chatx-text-secondary hover:text-chatx-text"
+                            }`}
+                    >
+                        Groups
+                    </button>
+                </div>
+            </div>
+
+            {/* Search Bar for Messages & Calls */}
+            {(activeTab === "messages" || activeTab === "calls") && (
+                <div className="px-6 pb-3">
+                    <div className="flex items-center gap-2 bg-white/30 hover:bg-white/40 transition-colors border border-white/10 rounded-xl px-3 py-2">
+                        <BsSearch className="text-chatx-text-secondary text-sm" />
+                        <input
+                            type="text"
+                            placeholder={activeTab === "messages" ? "Search conversations..." : "Search calls..."}
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="flex-1 bg-transparent text-sm text-chatx-text placeholder-chatx-text-secondary outline-none"
+                        />
+                    </div>
+                </div>
+            )}
+
+            {/* Content Area */}
+            <div className="flex-1 overflow-y-auto custom-scrollbar">
+                {/* Messages Tab */}
+                {activeTab === "messages" && (
+                    <>
+                        {sortedContacts.length === 0 && (
+                            <div className="flex flex-col items-center justify-center h-40 text-chatx-text-secondary">
+                                <BsSearch className="text-3xl mb-2 opacity-40" />
+                                <p className="text-sm opacity-60">No contacts found</p>
+                            </div>
+                        )}
+
+                        {sortedContacts.map((contact) => {
+                            const conv = conversations.find(c => c.members.includes(contact._id));
+                            const isSelected = currentChat?._id === contact._id;
+                            const online = isOnline(contact._id);
+                            const typing = isTyping(contact._id);
+                            const unread = conv?.unreadCount || 0;
+
+                            return (
+                                <div
+                                    key={contact._id}
+                                    onClick={() => changeChat(contact)}
+                                    className={`flex items-center gap-3 px-6 py-3.5 cursor-pointer transition-all duration-150 ${isSelected
+                                        ? "bg-white/60 border-l-4 border-chatx-accent"
+                                        : "hover:bg-white/20 border-l-4 border-transparent"
+                                        }`}
+                                >
+                                    {/* Avatar */}
+                                    <div className="relative flex-shrink-0">
+                                        <img
+                                            src={getAvatarUrl(contact)}
+                                            alt=""
+                                            className="w-12 h-12 rounded-full object-cover bg-white/20 shadow-sm"
+                                            onError={(e) => { e.target.src = `https://ui-avatars.com/api/?name=${contact.username}&background=E8EDF2&color=2B3A4E`; }}
+                                        />
+                                        {online && (
+                                            <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-chatx-online border-2 border-white rounded-full shadow-sm"></span>
+                                        )}
+                                    </div>
+
+                                    {/* Info */}
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex justify-between items-baseline mb-0.5">
+                                            <h3 className={`font-semibold text-[15px] truncate ${unread > 0 ? 'text-chatx-text' : 'text-chatx-text'}`}>
+                                                {contact.username}
+                                            </h3>
+                                            {conv?.lastMessage && (
+                                                <span className="text-xs text-chatx-text-secondary ml-2 flex-shrink-0">
+                                                    {formatTime(conv.lastMessage.createdAt)}
+                                                </span>
+                                            )}
+                                        </div>
+
+                                        <div className="flex justify-between items-center">
+                                            <p className="text-[13px] text-chatx-text-secondary truncate pr-2">
+                                                {typing ? (
+                                                    <span className="text-chatx-accent font-medium">typing...</span>
+                                                ) : conv?.lastMessage ? (
+                                                    <span className={unread > 0 ? 'text-chatx-text font-medium' : ''}>
+                                                        {conv.lastMessage.sender === currentUser._id && "You: "}
+                                                        {conv.lastMessage.fileType === "call"
+                                                            ? (conv.lastMessage.text.includes("Video") ? "🎥 Video Call" : "📞 Audio Call")
+                                                            : conv.lastMessage.fileType === "audio"
+                                                                ? "🎙 Voice message"
+                                                                : conv.lastMessage.bgImage ? "📷 Photo" : conv.lastMessage.fileUrl ? "📎 File" : conv.lastMessage.text
+                                                        }
+                                                    </span>
+                                                ) : (
+                                                    <span className="italic opacity-60">Tap to chat</span>
+                                                )}
+                                            </p>
+
+                                            {unread > 0 && (
+                                                <span className="bg-chatx-unread text-white text-[10px] font-bold px-1.5 py-0.5 min-w-[20px] h-[20px] rounded-full flex items-center justify-center flex-shrink-0 shadow-sm">
+                                                    {unread}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </>
                 )}
 
-                {sortedContacts.map((contact) => {
-                    const conv = conversations.find(c => c.members.includes(contact._id));
-                    const isSelected = currentChat?._id === contact._id;
-                    const online = isOnline(contact._id);
-                    const typing = isTyping(contact._id);
-                    const unread = conv?.unreadCount || 0;
-
-                    return (
-                        <div
-                            key={contact._id}
-                            onClick={() => changeChat(contact)}
-                            className={`group flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all duration-200 ${isSelected
-                                    ? "bg-ios-primary/20 shadow-lg shadow-ios-primary/10 border border-ios-primary/30"
-                                    : "hover:bg-white/5 border border-transparent"
-                                }`}
-                        >
-                            {/* Avatar */}
-                            <div className="relative flex-shrink-0">
-                                <img
-                                    src={getAvatarUrl(contact)}
-                                    alt=""
-                                    className={`w-12 h-12 rounded-full object-cover transition-transform duration-300 ${isSelected ? 'scale-105' : 'group-hover:scale-105'}`}
-                                    onError={(e) => { e.target.src = `https://ui-avatars.com/api/?name=${contact.username}&background=0D8ABC&color=fff`; }}
-                                />
-                                {online && (
-                                    <span className="absolute bottom-0 right-0 w-3 h-3 bg-ios-success border-2 border-black rounded-full"></span>
-                                )}
+                {/* Calls Tab */}
+                {activeTab === "calls" && (
+                    <>
+                        {loadingCalls ? (
+                            <div className="flex flex-col items-center justify-center h-40 text-chatx-text-secondary">
+                                <div className="w-8 h-8 border-2 border-chatx-primary border-t-transparent rounded-full animate-spin mb-3"></div>
+                                <p className="text-sm opacity-60">Loading call history...</p>
                             </div>
-
-                            {/* Info */}
-                            <div className="flex-1 min-w-0 flex flex-col justify-center h-full">
-                                <div className="flex justify-between items-baseline mb-0.5">
-                                    <h3 className={`font-semibold text-[15px] truncate ${isSelected ? 'text-white' : 'text-ios-text'}`}>
-                                        {contact.username}
-                                    </h3>
-                                    {conv?.lastMessage && (
-                                        <span className={`text-[11px] font-medium ${unread > 0 ? 'text-ios-primary' : 'text-ios-text-secondary'}`}>
-                                            {formatTime(conv.lastMessage.createdAt)}
-                                        </span>
-                                    )}
+                        ) : callHistory.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center h-40 text-chatx-text-secondary">
+                                <div className="w-16 h-16 rounded-full bg-white/20 flex items-center justify-center mb-3">
+                                    <BsTelephone className="text-2xl opacity-40" />
+                                </div>
+                                <p className="text-sm opacity-60 font-medium">No calls yet</p>
+                                <p className="text-xs opacity-40 mt-1">Start a call from a chat</p>
+                            </div>
+                        ) : (
+                            <>
+                                {/* Recent label */}
+                                <div className="px-6 py-2">
+                                    <p className="text-xs font-semibold text-chatx-text-secondary uppercase tracking-wider">Recent</p>
                                 </div>
 
-                                <div className="flex justify-between items-center">
-                                    <p className="text-[13px] text-ios-text-secondary truncate pr-2 h-5">
-                                        {typing ? (
-                                            <span className="text-ios-primary font-medium animate-pulse">typing...</span>
-                                        ) : conv?.lastMessage ? (
-                                            <span className={unread > 0 ? 'text-white font-medium' : ''}>
-                                                {conv.lastMessage.sender === currentUser._id && "You: "}
-                                                {conv.lastMessage.bgImage ? "📷 Photo" : conv.lastMessage.fileUrl ? "📎 File" : conv.lastMessage.text}
-                                            </span>
-                                        ) : (
-                                            <span className="italic opacity-60">Tap to chat</span>
-                                        )}
-                                    </p>
+                                {getGroupedCalls().map(({ contact, calls }) => {
+                                    const latestCall = calls[0];
+                                    const isMine = latestCall.sender === currentUser._id;
+                                    const isVideo = latestCall.text?.includes("Video");
+                                    const online = isOnline(contact._id);
 
-                                    {unread > 0 && (
-                                        <span className="bg-ios-primary text-white text-[10px] font-bold px-1.5 py-0.5 min-w-[18px] h-[18px] rounded-full flex items-center justify-center shadow-md shadow-ios-primary/40">
-                                            {unread}
-                                        </span>
-                                    )}
-                                </div>
-                            </div>
+                                    return (
+                                        <div
+                                            key={contact._id}
+                                            onClick={() => changeChat(contact)}
+                                            className="flex items-center gap-3 px-6 py-3.5 cursor-pointer transition-all duration-150 hover:bg-white/20"
+                                        >
+                                            <div className="relative flex-shrink-0">
+                                                <img
+                                                    src={getAvatarUrl(contact)}
+                                                    alt=""
+                                                    className="w-12 h-12 rounded-full object-cover bg-white/20 shadow-sm"
+                                                    onError={(e) => { e.target.src = `https://ui-avatars.com/api/?name=${contact.username}&background=E8EDF2&color=2B3A4E`; }}
+                                                />
+                                                {online && (
+                                                    <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-chatx-online border-2 border-white rounded-full shadow-sm"></span>
+                                                )}
+                                            </div>
+
+                                            <div className="flex-1 min-w-0">
+                                                <h3 className="font-semibold text-[15px] truncate text-chatx-text">
+                                                    {contact.username}
+                                                </h3>
+                                                <div className="flex items-center gap-1.5 mt-0.5">
+                                                    {isMine ? (
+                                                        <BsTelephoneOutbound className="text-chatx-online text-[10px]" />
+                                                    ) : (
+                                                        <BsTelephoneInbound className="text-chatx-accent text-[10px]" />
+                                                    )}
+                                                    <span className="text-[12px] text-chatx-text-secondary">
+                                                        {isMine ? "Outgoing" : "Incoming"} {isVideo ? "video" : "audio"} call
+                                                    </span>
+                                                    {calls.length > 1 && (
+                                                        <span className="text-[11px] text-chatx-text-secondary">({calls.length})</span>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            <div className="flex flex-col items-end gap-1">
+                                                <span className="text-[11px] text-chatx-text-secondary">
+                                                    {formatTime(latestCall.createdAt)}
+                                                </span>
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        changeChat(contact);
+                                                    }}
+                                                    className="p-1.5 rounded-full hover:bg-white/40 transition-colors"
+                                                >
+                                                    {isVideo ? (
+                                                        <BsCameraVideo className="text-chatx-primary text-sm" />
+                                                    ) : (
+                                                        <BsTelephone className="text-chatx-primary text-sm" />
+                                                    )}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </>
+                        )}
+                    </>
+                )}
+
+                {/* Groups Tab */}
+                {activeTab === "groups" && (
+                    <div className="flex flex-col items-center justify-center h-40 text-chatx-text-secondary">
+                        <div className="w-16 h-16 rounded-full bg-white/20 flex items-center justify-center mb-3">
+                            <BsChatDotsFill className="text-2xl opacity-40" />
                         </div>
-                    );
-                })}
+                        <p className="text-sm opacity-60 font-medium">No groups yet</p>
+                        <p className="text-xs opacity-40 mt-1">Groups coming soon</p>
+                    </div>
+                )}
             </div>
-            {/* New Chat FAB (Mini) */}
-            <div className="p-4 border-t border-ios-separator/10">
-                <button className="w-full bg-ios-surface/50 hover:bg-ios-surface border border-white/5 text-ios-primary font-medium py-2.5 rounded-xl transition-all duration-200 shadow-sm backdrop-blur-md flex items-center justify-center gap-2">
-                    <span className="text-xl">+</span> New Chat
-                </button>
+
+            {/* FAB - New Chat */}
+            <div className="relative">
+                <div className="flex justify-end px-6 pb-4">
+                    <button className="w-12 h-12 rounded-full bg-chatx-primary text-white flex items-center justify-center fab-pulse shadow-lg border border-white/20 hover:bg-chatx-primary/90">
+                        <BsChatDotsFill className="text-xl" />
+                    </button>
+                </div>
             </div>
         </div>
     );

@@ -5,7 +5,7 @@ const MessageSchema = new mongoose.Schema({
     sender: { type: String },
     text: { type: String, default: "" },
     fileUrl: { type: String, default: "" },
-    fileType: { type: String, enum: ['text', 'image', 'video', 'file'], default: 'text' },
+    fileType: { type: String, enum: ['text', 'image', 'video', 'file', 'audio', 'call'], default: 'text' },
     replyTo: {
         _id: { type: String, default: null },
         text: { type: String, default: null },

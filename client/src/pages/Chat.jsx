@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState, useRef, useCallback } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
@@ -5,12 +6,16 @@ import { io } from "socket.io-client";
 import Sidebar from "../components/Sidebar";
 import Welcome from "../components/Welcome";
 import ChatContainer from "../components/ChatContainer";
+import { ToastContainer, toast } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
+import playSound, { playRingtone, stopRingtone } from "../utils/sounds";
+import { BsTelephone, BsCameraVideo, BsTelephoneX } from "react-icons/bs";
 
 const API = "http://localhost:5000";
 
 export default function Chat() {
     const navigate = useNavigate();
-    const socket = useRef(null);
+    const [socket, setSocket] = useState(null);
     const [contacts, setContacts] = useState([]);
     const [conversations, setConversations] = useState([]);
     const [currentChat, setCurrentChat] = useState(null);
@@ -18,38 +23,83 @@ export default function Chat() {
     const [onlineUsers, setOnlineUsers] = useState([]);
     const [typingUsers, setTypingUsers] = useState([]);
     const [searchQuery, setSearchQuery] = useState("");
+    const [incomingCall, setIncomingCall] = useState(null);
+    const [callActive, setCallActive] = useState(null);
 
     // Load current user
     useEffect(() => {
         const stored = localStorage.getItem("chat-app-user");
         if (!stored) { navigate("/login"); return; }
-        setCurrentUser(JSON.parse(stored));
+        try {
+            const user = JSON.parse(stored);
+            if (!user || !user._id) throw new Error("Invalid user data");
+            setCurrentUser(user);
+        } catch (err) {
+            console.error("Failed to parse user data:", err);
+            localStorage.removeItem("chat-app-user");
+            navigate("/login");
+        }
     }, [navigate]);
 
     // Setup socket
     useEffect(() => {
         if (!currentUser) return;
-        socket.current = io(API);
-        socket.current.emit("addUser", currentUser._id);
+        const newSocket = io(API);
+        setSocket(newSocket);
+        newSocket.emit("addUser", currentUser._id);
 
-        socket.current.on("getUsers", (users) => setOnlineUsers(users));
-
-        socket.current.on("userTyping", ({ senderId }) => {
-            setTypingUsers((prev) => prev.includes(senderId) ? prev : [...prev, senderId]);
-        });
-        socket.current.on("userStopTyping", ({ senderId }) => {
-            setTypingUsers((prev) => prev.filter((id) => id !== senderId));
-        });
-
-        return () => { if (socket.current) socket.current.disconnect(); };
+        return () => { newSocket.disconnect(); };
     }, [currentUser]);
+
+    // Socket listeners
+    useEffect(() => {
+        if (!socket) return;
+
+        const handleGetUsers = (users) => setOnlineUsers(users);
+        const handleTyping = ({ senderId }) => setTypingUsers((prev) => prev.includes(senderId) ? prev : [...prev, senderId]);
+        const handleStopTyping = ({ senderId }) => setTypingUsers((prev) => prev.filter((id) => id !== senderId));
+
+        const handleIncomingCall = (data) => {
+            if (callActive) {
+                // Busy: could auto-reject or ignore
+                return;
+            }
+            setIncomingCall(data);
+            playRingtone();
+        };
+
+        const handleCallEnded = () => {
+            setCallActive(null);
+            setIncomingCall(null);
+            stopRingtone();
+            toast.info("Call ended");
+        };
+
+        socket.on("getUsers", handleGetUsers);
+        socket.on("userTyping", handleTyping);
+        socket.on("userStopTyping", handleStopTyping);
+        socket.on("incomingCall", handleIncomingCall);
+        socket.on("callEnded", handleCallEnded);
+
+        return () => {
+            socket.off("getUsers", handleGetUsers);
+            socket.off("userTyping", handleTyping);
+            socket.off("userStopTyping", handleStopTyping);
+            socket.off("incomingCall", handleIncomingCall);
+            socket.off("callEnded", handleCallEnded);
+        };
+    }, [socket, callActive]);
 
     // Load contacts
     useEffect(() => {
         if (!currentUser) return;
         axios.get(`${API}/api/users`).then((res) => {
-            setContacts(res.data.filter((u) => u._id !== currentUser._id));
-        }).catch(console.error);
+            const data = Array.isArray(res.data) ? res.data : [];
+            setContacts(data.filter((u) => u._id !== currentUser._id));
+        }).catch((err) => {
+            console.error("Failed to load contacts:", err);
+            setContacts([]);
+        });
     }, [currentUser]);
 
     // Load conversations
@@ -57,19 +107,69 @@ export default function Chat() {
         if (!currentUser) return;
         try {
             const res = await axios.get(`${API}/api/conversations/${currentUser._id}`);
-            setConversations(res.data);
-        } catch (err) { console.error(err); }
+            if (Array.isArray(res.data)) {
+                setConversations(res.data);
+            } else {
+                setConversations([]);
+            }
+        } catch (err) {
+            console.error("Failed to load conversations:", err);
+            setConversations([]);
+        }
     }, [currentUser]);
 
     useEffect(() => { loadConversations(); }, [loadConversations]);
 
-    // Listen for new messages to refresh conversation list
+    // Global notification for incoming messages
     useEffect(() => {
-        if (!socket.current) return;
-        const handler = () => { loadConversations(); };
-        socket.current.on("getMessage", handler);
-        return () => { if (socket.current) socket.current.off("getMessage", handler); };
-    }, [loadConversations]);
+        if (!socket || !currentUser) return;
+
+        const handler = (data) => {
+            if (data.fileType === "call") return; // Handled by incomingCall event mostly, but also as msg
+
+            // Refresh conversation list logic
+            loadConversations();
+
+            // Should play sound?
+            if (currentChat && data.senderId === currentChat._id) {
+                // In chat: sound handled by ChatContainer or here?
+                // ChatContainer plays sound too. Let's just update lists.
+                return;
+            }
+
+            // Not in chat: Notification
+            const sender = contacts.find(c => c._id === data.senderId);
+            const senderName = data.senderName || sender?.username || "Someone";
+
+            playSound("receive");
+
+            if ("Notification" in window && Notification.permission === "granted") {
+                const notif = new Notification(`New message from ${senderName}`, {
+                    body: data.text || "New message",
+                    icon: sender?.avatarImage ? `${API}/images/${sender.avatarImage}` : undefined,
+                });
+                notif.onclick = () => { window.focus(); if (sender) setCurrentChat(sender); };
+            }
+
+            toast(
+                <div onClick={() => { if (sender) setCurrentChat(sender); }} className="cursor-pointer">
+                    <p className="font-bold text-sm">{senderName}</p>
+                    <p className="text-xs truncate">{data.text || "Sent a file"}</p>
+                </div>,
+                { position: "top-right", autoClose: 5000, theme: "light" }
+            );
+        };
+
+        socket.on("getMessage", handler);
+        return () => { socket.off("getMessage", handler); };
+    }, [socket, currentChat, contacts, currentUser, loadConversations]);
+
+    // Request notification permission
+    useEffect(() => {
+        if ("Notification" in window && Notification.permission === "default") {
+            Notification.requestPermission();
+        }
+    }, []);
 
     const handleChatChange = (contact) => {
         setCurrentChat(contact);
@@ -77,51 +177,97 @@ export default function Chat() {
 
     const handleLogout = () => {
         localStorage.removeItem("chat-app-user");
-        if (socket.current) socket.current.disconnect();
+        if (socket) socket.disconnect();
         navigate("/login");
     };
 
-    return (
-        <>
-            {/* Liquid Background */}
-            <div className="liquid-bg">
-                <div className="liquid-blob blob-1"></div>
-                <div className="liquid-blob blob-2"></div>
-                <div className="liquid-blob blob-3"></div>
-            </div>
+    const acceptCall = () => {
+        if (!incomingCall) return;
+        stopRingtone();
+        const caller = contacts.find(c => c._id === incomingCall.senderId);
+        if (caller) setCurrentChat(caller);
 
-            {/* Main Container */}
-            <div className="h-screen w-screen flex items-center justify-center p-0 lg:p-6 overflow-hidden">
-                <div className="w-full h-full lg:max-w-[1400px] lg:h-[90vh] flex overflow-hidden lg:rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] border border-white/10 backdrop-blur-2xl bg-black/40">
-                    <Sidebar
-                        contacts={contacts}
-                        conversations={conversations}
-                        currentUser={currentUser}
-                        onlineUsers={onlineUsers}
-                        typingUsers={typingUsers}
-                        currentChat={currentChat}
-                        changeChat={handleChatChange}
-                        onLogout={handleLogout}
-                        searchQuery={searchQuery}
-                        setSearchQuery={setSearchQuery}
-                        updateCurrentUser={setCurrentUser}
-                    />
-                    <div className="flex-1 flex flex-col relative">
-                        {currentChat ? (
-                            <ChatContainer
-                                currentChat={currentChat}
-                                currentUser={currentUser}
-                                socket={socket}
-                                onlineUsers={onlineUsers}
-                                typingUsers={typingUsers}
-                                refreshConversations={loadConversations}
+        setCallActive({ type: incomingCall.callType, direction: 'incoming' });
+
+        socket.emit("callAccepted", { senderId: incomingCall.senderId, receiverId: currentUser._id });
+        setIncomingCall(null);
+    };
+
+    const rejectCall = () => {
+        if (!incomingCall) return;
+        stopRingtone();
+        socket.emit("callRejected", { senderId: incomingCall.senderId, receiverId: currentUser._id });
+        setIncomingCall(null);
+        // Also add a "Missed call" message?
+    };
+
+    return (
+        <div className="h-screen w-screen relative overflow-hidden flex items-center justify-center p-0 lg:p-6 font-sans">
+            <div className="liquid-bg"></div>
+            <ToastContainer position="top-right" autoClose={5000} theme="light" />
+
+            {/* Incoming Call Modal */}
+            {incomingCall && (
+                <div className="fixed inset-0 z-[300] bg-black/80 backdrop-blur-sm flex items-center justify-center animate-fade-in">
+                    <div className="bg-white/10 backdrop-blur-xl border border-white/20 p-8 rounded-3xl shadow-2xl flex flex-col items-center gap-6 w-[320px]">
+                        <div className="relative">
+                            <div className="absolute inset-0 bg-white/20 rounded-full animate-ping"></div>
+                            <img
+                                src={contacts.find(c => c._id === incomingCall.senderId)?.avatarImage
+                                    ? `${API}/images/${contacts.find(c => c._id === incomingCall.senderId).avatarImage}`
+                                    : `https://ui-avatars.com/api/?name=${incomingCall.senderName}&background=random`}
+                                alt=""
+                                className="w-24 h-24 rounded-full object-cover border-4 border-white/20 shadow-xl relative z-10"
                             />
-                        ) : (
-                            <Welcome currentUser={currentUser || { username: "User" }} />
-                        )}
+                        </div>
+                        <div className="text-center">
+                            <h2 className="text-white text-2xl font-bold">{incomingCall.senderName}</h2>
+                            <p className="text-white/70">Incoming {incomingCall.callType} call...</p>
+                        </div>
+                        <div className="flex items-center gap-6 mt-4">
+                            <button onClick={rejectCall} className="w-14 h-14 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow-lg transition-transform hover:scale-110">
+                                <BsTelephoneX className="text-xl" />
+                            </button>
+                            <button onClick={acceptCall} className="w-14 h-14 rounded-full bg-green-500 hover:bg-green-600 text-white flex items-center justify-center shadow-lg transition-transform hover:scale-110 animate-bounce">
+                                {incomingCall.callType === 'video' ? <BsCameraVideo className="text-xl" /> : <BsTelephone className="text-xl" />}
+                            </button>
+                        </div>
                     </div>
                 </div>
+            )}
+
+            <div className="w-full h-full lg:max-w-[1240px] lg:h-[90vh] flex overflow-hidden lg:rounded-3xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.3)] glass-panel z-10 relative">
+                <Sidebar
+                    contacts={contacts}
+                    conversations={conversations}
+                    currentUser={currentUser}
+                    onlineUsers={onlineUsers}
+                    typingUsers={typingUsers}
+                    currentChat={currentChat}
+                    changeChat={handleChatChange}
+                    onLogout={handleLogout}
+                    searchQuery={searchQuery}
+                    setSearchQuery={setSearchQuery}
+                    updateCurrentUser={setCurrentUser}
+                />
+                <div className="flex-1 flex flex-col relative bg-transparent">
+                    {currentChat ? (
+                        <ChatContainer
+                            currentChat={currentChat}
+                            currentUser={currentUser}
+                            socket={{ current: socket }} // Adapt to Ref-like prop if needed, or update ChatContainer
+                            onlineUsers={onlineUsers}
+                            typingUsers={typingUsers}
+                            refreshConversations={loadConversations}
+                            onBack={() => setCurrentChat(null)}
+                            callActiveProp={callActive}
+                            setCallActiveProp={setCallActive}
+                        />
+                    ) : (
+                        <Welcome currentUser={currentUser || { username: "User" }} />
+                    )}
+                </div>
             </div>
-        </>
+        </div>
     );
 }

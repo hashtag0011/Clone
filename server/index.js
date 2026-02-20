@@ -97,7 +97,9 @@ io.on("connection", (socket) => {
                 status: "delivered",
             });
             try {
-                await Message.findByIdAndUpdate(_id, { status: "delivered" });
+                if (_id) {
+                    await Message.findByIdAndUpdate(_id, { status: "delivered" });
+                }
             } catch (err) { console.error(err); }
         }
     });
@@ -127,6 +129,39 @@ io.on("connection", (socket) => {
         const user = getUser(receiverId);
         if (user) {
             io.to(user.socketId).emit("messageDeleted", { messageId, conversationId });
+        }
+    });
+
+    // Call signaling events
+    socket.on("callUser", ({ senderId, receiverId, callType, senderName }) => {
+        const user = getUser(receiverId);
+        if (user) {
+            io.to(user.socketId).emit("incomingCall", {
+                senderId,
+                senderName,
+                callType,
+            });
+        }
+    });
+
+    socket.on("callAccepted", ({ senderId, receiverId }) => {
+        const user = getUser(senderId);
+        if (user) {
+            io.to(user.socketId).emit("callAccepted", { receiverId });
+        }
+    });
+
+    socket.on("callRejected", ({ senderId, receiverId }) => {
+        const user = getUser(senderId);
+        if (user) {
+            io.to(user.socketId).emit("callRejected", { receiverId });
+        }
+    });
+
+    socket.on("endCall", ({ senderId, receiverId }) => {
+        const user = getUser(receiverId);
+        if (user) {
+            io.to(user.socketId).emit("callEnded", { senderId });
         }
     });
 

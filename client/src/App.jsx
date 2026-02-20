@@ -5,14 +5,18 @@ import Register from './pages/Register';
 import Login from './pages/Login';
 import Chat from './pages/Chat';
 
+import ErrorBoundary from './components/ErrorBoundary';
+
 export default function App() {
   return (
     <BrowserRouter>
-      <Routes>
-        <Route path="/register" element={<Register />} />
-        <Route path="/login" element={<Login />} />
-        <Route path="/" element={<Chat />} />
-      </Routes>
+      <ErrorBoundary>
+        <Routes>
+          <Route path="/register" element={<Register />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/" element={<Chat />} />
+        </Routes>
+      </ErrorBoundary>
     </BrowserRouter>
   );
 }

@@ -20,20 +20,28 @@ router.post("/", async (req, res) => {
     }
 });
 
-// Get messages by conversation
-router.get("/:conversationId", async (req, res) => {
+// Get call history for a user (MUST be before /:conversationId to avoid matching "calls" as a conversationId)
+router.get("/calls/:userId", async (req, res) => {
     try {
-        const messages = await Message.find({
-            conversationId: req.params.conversationId,
-            deletedForEveryone: { $ne: true },
-        }).sort({ createdAt: 1 });
-        res.status(200).json(messages);
+        // Find conversations the user is part of
+        const conversations = await Conversation.find({
+            members: { $in: [req.params.userId] },
+        });
+        const conversationIds = conversations.map((c) => c._id);
+
+        // Find call messages in those conversations
+        const calls = await Message.find({
+            conversationId: { $in: conversationIds },
+            fileType: "call",
+        }).sort({ createdAt: -1 });
+
+        res.status(200).json(calls);
     } catch (err) {
         res.status(500).json(err);
     }
 });
 
-// Mark messages as read
+// Mark messages as read (MUST be before /:conversationId)
 router.put("/read/:conversationId/:userId", async (req, res) => {
     try {
         await Message.updateMany(
@@ -50,7 +58,7 @@ router.put("/read/:conversationId/:userId", async (req, res) => {
     }
 });
 
-// Delete message
+// Delete message (MUST be before /:conversationId)
 router.put("/delete/:messageId", async (req, res) => {
     const { userId, deleteForEveryone } = req.body;
     try {
@@ -64,6 +72,19 @@ router.put("/delete/:messageId", async (req, res) => {
             });
         }
         res.status(200).json("Message deleted");
+    } catch (err) {
+        res.status(500).json(err);
+    }
+});
+
+// Get messages by conversation (LAST - catch-all for GET /:id)
+router.get("/:conversationId", async (req, res) => {
+    try {
+        const messages = await Message.find({
+            conversationId: req.params.conversationId,
+            deletedForEveryone: { $ne: true },
+        }).sort({ createdAt: 1 });
+        res.status(200).json(messages);
     } catch (err) {
         res.status(500).json(err);
     }

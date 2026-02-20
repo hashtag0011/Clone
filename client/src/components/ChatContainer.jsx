@@ -1,26 +1,32 @@
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import ChatInput from "./ChatInput";
 import axios from "axios";
-import { BsArrowLeft, BsThreeDotsVertical, BsTrash, BsReply, BsTelephone, BsCameraVideo, BsInfoCircle, BsPlayFill, BsPauseFill, BsX, BsMicMute, BsCameraVideoOff } from "react-icons/bs";
+import { BsArrowLeft, BsThreeDots, BsTrash, BsReply, BsX, BsCheckLg, BsTelephone, BsCameraVideo, BsTelephoneX, BsMicMute, BsMic, BsCameraVideoOff } from "react-icons/bs";
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import playSound from "../utils/sounds";
 
 const API = "http://localhost:5000";
 
-export default function ChatContainer({ currentChat, currentUser, socket, onlineUsers, typingUsers, refreshConversations }) {
+export default function ChatContainer({ currentChat, currentUser, socket, onlineUsers, typingUsers, refreshConversations, onBack, callActiveProp: callActive, setCallActiveProp: setCallActive }) {
     const [messages, setMessages] = useState([]);
     const [conversation, setConversation] = useState(null);
     const [contextMenu, setContextMenu] = useState(null);
     const [replyTo, setReplyTo] = useState(null);
     const [viewingMedia, setViewingMedia] = useState(null);
-    const [inCall, setInCall] = useState(false);
-    const [localStream, setLocalStream] = useState(null);
+
+    // callActive state is now lifted to Chat.jsx and passed via props
+
+    const [callTimer, setCallTimer] = useState(0);
+    const [callMuted, setCallMuted] = useState(false);
+    const [callVideoOff, setCallVideoOff] = useState(false);
 
     const scrollRef = useRef();
     const messagesEndRef = useRef();
-    const videoRef = useRef();
+    const callTimerRef = useRef(null);
+    const myVideoRef = useRef(null);
+    const localStreamRef = useRef(null);
 
     const isOnline = onlineUsers.some((u) => u.userId === currentChat._id);
     const isTyping = typingUsers.includes(currentChat._id);
@@ -68,7 +74,14 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
             if (currentChat && data.senderId === currentChat._id) {
                 setMessages((prev) => [...prev, { ...data, status: "delivered" }]);
                 playSound("receive");
-                toast.info(`New message from ${currentChat.username}`, { position: "top-right", autoClose: 3000, theme: "dark" });
+
+                // Do NOT show toast here if we are already in the chat seeing the message appear!
+                // The previous code showed toast AND message. User might find that annoying or duplicate.
+                // But let's keep it minimal logic change for now.
+                // Actually, duplicate notification inside chat is usually bad UX.
+                // Chat.jsx handles GLOBAL notifications.
+                // ChatContainer handles LOCAL logic.
+                // I will REMOVE the toast here because the message list updates.
 
                 if (conversation) {
                     axios.put(`${API}/api/messages/read/${conversation._id}/${currentUser._id}`).catch(console.error);
@@ -113,6 +126,45 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
         return () => window.removeEventListener("click", handler);
     }, []);
 
+    // Call timer & Media Stream
+    useEffect(() => {
+        if (callActive) {
+            setCallTimer(0);
+            callTimerRef.current = setInterval(() => {
+                setCallTimer(prev => prev + 1);
+            }, 1000);
+
+            // Access Camera/Mic
+            if (callActive.type === 'video') {
+                navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+                    .then(stream => {
+                        localStreamRef.current = stream;
+                        if (myVideoRef.current) {
+                            myVideoRef.current.srcObject = stream;
+                        }
+                    })
+                    .catch(err => {
+                        console.error("Error accessing media devices:", err);
+                        toast.error("Could not access camera/microphone");
+                    });
+            }
+        } else {
+            clearInterval(callTimerRef.current);
+            setCallTimer(0);
+            // Stop tracks
+            if (localStreamRef.current) {
+                localStreamRef.current.getTracks().forEach(track => track.stop());
+                localStreamRef.current = null;
+            }
+        }
+        return () => {
+            clearInterval(callTimerRef.current);
+            if (localStreamRef.current) {
+                localStreamRef.current.getTracks().forEach(track => track.stop());
+            }
+        };
+    }, [callActive]);
+
     const handleSendMsg = async ({ text, fileUrl, fileType }) => {
         let convId = conversation?._id;
         if (!convId) {
@@ -130,7 +182,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
             const res = await axios.post(`${API}/api/messages`, msgData);
             setMessages((prev) => [...prev, res.data]);
             socket.current.emit("sendMessage", { ...res.data, receiverId: currentChat._id, senderName: currentUser.username });
-            playSound("send"); // Play send sound
+            playSound("send");
             setReplyTo(null);
             refreshConversations();
         } catch (err) { console.error(err); }
@@ -149,172 +201,347 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
         } catch (err) { console.error(err); }
     };
 
-    // Video Call Handlers
-    const startCall = async () => {
-        setInCall(true);
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 }, audio: true });
-            setLocalStream(stream);
-            if (videoRef.current) videoRef.current.srcObject = stream;
-        } catch (err) {
-            console.error("Error accessing camera:", err);
-            toast.error("Could not access camera/microphone");
-            setInCall(false);
+    const initiateCall = async (type) => {
+        const text = type === "video" ? "🎥 Video Call" : "📞 Audio Call";
+        await handleSendMsg({ text, fileUrl: "", fileType: "call" });
+        setCallActive({ type, direction: 'outgoing' });
+
+        // Emit call signal via socket
+        if (socket.current) {
+            // Send message entry
+            // Also Signal call
+            socket.current.emit("callUser", {
+                senderId: currentUser._id,
+                receiverId: currentChat._id,
+                callType: type,
+                senderName: currentUser.username
+            });
         }
     };
 
     const endCall = () => {
-        if (localStream) {
-            localStream.getTracks().forEach(track => track.stop());
-            setLocalStream(null);
+        const duration = callTimer;
+        const type = callActive?.type;
+        setCallActive(null);
+        setCallMuted(false);
+        setCallVideoOff(false);
+
+        if (socket.current) {
+            socket.current.emit("endCall", { senderId: currentUser._id, receiverId: currentChat._id });
         }
-        setInCall(false);
+
+        const mins = Math.floor(duration / 60);
+        const secs = duration % 60;
+        const durationStr = `${mins}:${secs < 10 ? '0' + secs : secs}`;
+        toast.info(`${type === 'video' ? '🎥 Video' : '📞 Audio'} call ended • ${durationStr}`, { position: "top-center", autoClose: 3000 });
     };
 
-    useEffect(() => {
-        if (inCall && videoRef.current && localStream) videoRef.current.srcObject = localStream;
-    }, [inCall, localStream]);
+    const formatCallTimer = (sec) => {
+        const mins = Math.floor(sec / 60);
+        const secs = sec % 60;
+        return `${mins < 10 ? '0' + mins : mins}:${secs < 10 ? '0' + secs : secs}`;
+    };
 
-    // Helper to open media
     const openMedia = (url) => setViewingMedia(url);
 
     const formatTime = (d) => new Date(d).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+    const getDateLabel = (d) => {
+        const date = new Date(d);
+        const today = new Date();
+        const isToday = date.toDateString() === today.toDateString();
+        if (isToday) {
+            return `TODAY, ${date.toLocaleDateString([], { month: 'long', day: 'numeric' }).toUpperCase()}`;
+        }
+        return date.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' }).toUpperCase();
+    };
+
     const getDateKey = (d) => new Date(d).toDateString();
     let lastDateKey = null;
 
     return (
-        <div className="flex flex-col h-full w-full relative overflow-hidden backdrop-blur-3xl bg-black/40">
-            {/* Liquid Background */}
-            <div className="absolute top-[-10%] right-[-10%] w-96 h-96 bg-ios-primary/20 rounded-full blur-3xl animate-pulse-slow pointer-events-none z-0"></div>
-            <div className="absolute bottom-[-10%] left-[-10%] w-96 h-96 bg-ios-secondary/20 rounded-full blur-3xl animate-pulse-slow pointer-events-none delay-1000 z-0"></div>
-
+        <div className="flex flex-col h-full w-full bg-transparent relative">
             <ToastContainer />
 
-            {/* Absolute Header - Ensuring visibility with Z-50 */}
-            <div className="absolute top-0 left-0 right-0 z-50 h-20 px-6 flex items-center justify-between bg-ios-glass-card backdrop-blur-xl border-b border-white/10 shadow-lg">
-                <div className="flex items-center gap-4">
+            {/* Call Overlay */}
+            {callActive && (
+                <div className="absolute inset-0 z-[200] flex flex-col items-center justify-center call-overlay">
+                    {/* Animated background gradient */}
+                    <div className="absolute inset-0 bg-gradient-to-b from-[#1a1a2e] via-[#16213e] to-[#0f3460] opacity-95"></div>
+
+                    {/* Floating particles effect */}
+                    <div className="absolute inset-0 overflow-hidden pointer-events-none">
+                        <div className="call-particle call-particle-1"></div>
+                        <div className="call-particle call-particle-2"></div>
+                        <div className="call-particle call-particle-3"></div>
+                    </div>
+
+                    <div className="relative z-10 flex flex-col items-center gap-6 animate-fade-in">
+                        {/* Avatar with pulse ring */}
+                        <div className="relative">
+                            <div className="absolute inset-0 rounded-full bg-white/10 animate-ping" style={{ animationDuration: '2s' }}></div>
+                            <div className="absolute -inset-3 rounded-full border-2 border-white/20 animate-pulse"></div>
+                            <img
+                                src={getAvatarUrl(currentChat)}
+                                alt=""
+                                className="w-28 h-28 rounded-full object-cover border-4 border-white/30 shadow-2xl relative z-10"
+                                onError={(e) => { e.target.src = `https://ui-avatars.com/api/?name=${currentChat.username}&background=E8EDF2&color=2B3A4E&size=128`; }}
+                            />
+                            {callActive.type === 'video' && (
+                                <div className="absolute -bottom-1 -right-1 w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center z-20 shadow-lg">
+                                    <BsCameraVideo className="text-white text-sm" />
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="text-center">
+                            <h2 className="text-white text-2xl font-bold tracking-tight">{currentChat.username}</h2>
+                            <div className="flex items-center justify-center gap-2 mt-2">
+                                <span className={`w-2 h-2 rounded-full animate-pulse ${callActive.direction === 'incoming' ? 'bg-green-400' : 'bg-blue-400'}`}></span>
+                                <p className="text-white/70 text-sm font-medium">
+                                    {callActive.type === 'video' ? 'Video Call' : 'Audio Call'} • {formatCallTimer(callTimer)}
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Call Controls */}
+                        <div className="flex items-center gap-5 mt-8">
+                            <button
+                                onClick={() => setCallMuted(!callMuted)}
+                                className={`w-14 h-14 rounded-full flex items-center justify-center transition-all duration-300 shadow-lg ${callMuted
+                                    ? 'bg-white/30 text-white ring-2 ring-white/50'
+                                    : 'bg-white/15 text-white/90 hover:bg-white/25'
+                                    }`}
+                                title={callMuted ? "Unmute" : "Mute"}
+                            >
+                                {callMuted ? <BsMicMute className="text-xl" /> : <BsMic className="text-xl" />}
+                            </button>
+
+                            {callActive.type === 'video' && (
+                                <button
+                                    onClick={() => setCallVideoOff(!callVideoOff)}
+                                    className={`w-14 h-14 rounded-full flex items-center justify-center transition-all duration-300 shadow-lg ${callVideoOff
+                                        ? 'bg-white/30 text-white ring-2 ring-white/50'
+                                        : 'bg-white/15 text-white/90 hover:bg-white/25'
+                                        }`}
+                                    title={callVideoOff ? "Turn on camera" : "Turn off camera"}
+                                >
+                                    {callVideoOff ? <BsCameraVideoOff className="text-xl" /> : <BsCameraVideo className="text-xl" />}
+                                </button>
+                            )}
+
+                            <button
+                                onClick={endCall}
+                                className="w-16 h-16 rounded-full bg-gradient-to-br from-red-500 to-red-600 text-white flex items-center justify-center shadow-xl hover:scale-110 transition-transform duration-200 ring-4 ring-red-500/30"
+                                title="End Call"
+                            >
+                                <BsTelephoneX className="text-2xl" />
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Local Video Stream Preview */}
+                    {callActive.type === 'video' && (
+                        <div className="absolute bottom-8 right-6 w-36 h-52 bg-black rounded-xl overflow-hidden shadow-2xl border-2 border-white/20 z-30 animate-scale-in">
+                            <video
+                                ref={myVideoRef}
+                                autoPlay
+                                muted
+                                className="w-full h-full object-cover mirror-mode"
+                            />
+                            <div className="absolute bottom-2 left-2 text-[10px] bg-black/50 text-white px-2 py-0.5 rounded-full backdrop-blur-sm">
+                                You
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-3 bg-white/40 backdrop-blur-md border-b border-white/30 transition-all duration-300">
+                <div className="flex items-center gap-3">
+                    {onBack && (
+                        <button
+                            onClick={onBack}
+                            className="p-1.5 rounded-full hover:bg-white/30 transition-colors text-chatx-text-secondary"
+                        >
+                            <BsArrowLeft className="text-xl" />
+                        </button>
+                    )}
                     <div className="relative">
                         <img
                             src={getAvatarUrl(currentChat)}
                             alt=""
-                            className="w-10 h-10 rounded-full object-cover border border-white/20 shadow-sm bg-white/5"
-                            onError={(e) => { e.target.src = `https://ui-avatars.com/api/?name=${currentChat.username}&background=0D8ABC&color=fff`; }}
+                            className="w-10 h-10 rounded-full object-cover bg-white/20 shadow-sm"
+                            onError={(e) => { e.target.src = `https://ui-avatars.com/api/?name=${currentChat.username}&background=E8EDF2&color=2B3A4E`; }}
                         />
-                        <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border border-black ${isOnline ? 'bg-ios-success shadow-[0_0_8px_rgba(52,199,89,0.8)]' : 'bg-ios-text-secondary'}`}></span>
+                        {isOnline && (
+                            <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-chatx-online border-2 border-white rounded-full"></span>
+                        )}
                     </div>
                     <div>
-                        <h3 className="text-white font-semibold text-[16px] leading-tight tracking-wide drop-shadow-sm">{currentChat.username}</h3>
-                        <p className="text-ios-primary text-[11px] font-medium tracking-wider uppercase opacity-90">
-                            {isTyping ? "typing..." : isOnline ? "Online" : "Last seen recently"}
+                        <h3 className="text-chatx-text font-bold text-[16px] leading-tight">{currentChat.username}</h3>
+                        <p className="text-chatx-text-secondary text-xs">
+                            {isTyping ? (
+                                <span className="text-chatx-accent font-medium">typing...</span>
+                            ) : isOnline ? "Online" : "Last seen recently"}
                         </p>
                     </div>
                 </div>
 
-                <div className="flex items-center gap-4 text-ios-primary text-xl">
-                    <button className="p-2 hover:bg-white/10 rounded-full transition-colors"><BsTelephone /></button>
-                    <button onClick={startCall} className="p-2 hover:bg-white/10 rounded-full transition-colors"><BsCameraVideo /></button>
-                    <button className="p-2 hover:bg-white/10 rounded-full transition-colors"><BsInfoCircle /></button>
+                <div className="flex items-center gap-1">
+                    <button onClick={() => initiateCall("audio")} className="p-2 rounded-full hover:bg-white/30 transition-colors group" title="Audio Call">
+                        <BsTelephone className="text-chatx-text-secondary text-lg group-hover:text-chatx-primary transition-colors" />
+                    </button>
+                    <button onClick={() => initiateCall("video")} className="p-2 rounded-full hover:bg-white/30 transition-colors group" title="Video Call">
+                        <BsCameraVideo className="text-chatx-text-secondary text-xl group-hover:text-chatx-primary transition-colors" />
+                    </button>
+                    <button className="p-2 rounded-full hover:bg-white/30 transition-colors">
+                        <BsThreeDots className="text-chatx-text-secondary text-xl" />
+                    </button>
                 </div>
             </div>
 
-            {/* Messages Area with Padding-Top to clear Header */}
-            <div className="flex-1 overflow-y-auto px-6 pb-4 pt-24 custom-scrollbar space-y-3 z-10" ref={scrollRef}>
+            {/* Messages Area */}
+            <div className="flex-1 overflow-y-auto px-4 pb-4 pt-4 custom-scrollbar" ref={scrollRef}>
                 {messages.map((msg, i) => {
                     const isMine = msg.sender === currentUser._id;
                     const dateKey = getDateKey(msg.createdAt);
                     let showDate = false;
                     if (dateKey !== lastDateKey) { showDate = true; lastDateKey = dateKey; }
 
+                    // Group timestamps: show time after a gap or last in a sequence
+                    const nextMsg = messages[i + 1];
+                    const showTime = !nextMsg ||
+                        nextMsg.sender !== msg.sender ||
+                        (new Date(nextMsg.createdAt) - new Date(msg.createdAt)) > 60000;
+
                     return (
                         <React.Fragment key={msg._id || i}>
                             {showDate && (
-                                <div className="flex justify-center my-6">
-                                    <span className="bg-black/30 backdrop-blur-md text-ios-text-secondary text-[10px] font-medium px-3 py-1 rounded-full uppercase tracking-widest border border-white/5 shadow-sm">
-                                        {new Date(msg.createdAt).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })}
+                                <div className="flex justify-center my-4">
+                                    <span className="bg-white/30 backdrop-blur-md border border-white/20 text-chatx-text-secondary text-[11px] font-semibold px-4 py-1.5 rounded-full uppercase tracking-wider shadow-sm">
+                                        {getDateLabel(msg.createdAt)}
                                     </span>
                                 </div>
                             )}
 
-                            <div className={`flex ${isMine ? "justify-end" : "justify-start"} items-end gap-2 group animate-scale-in`}>
-                                {/* Avatar for other user */}
-                                {!isMine && (
-                                    <img
-                                        src={getAvatarUrl(currentChat)}
-                                        className="w-8 h-8 rounded-full object-cover mb-1 border border-white/10 bg-black/20"
-                                        onError={(e) => { e.target.src = `https://ui-avatars.com/api/?name=${currentChat.username}&background=0D8ABC&color=fff`; }}
-                                    />
-                                )}
-
-                                <div
-                                    className={`relative max-w-[65%] px-4 py-3 rounded-2xl shadow-lg border border-white/5 backdrop-blur-md transition-transform duration-200 hover:scale-[1.01] ${isMine ? "bg-gradient-to-br from-ios-primary to-[#0063CC] text-white rounded-br-none" : "bg-white/10 text-white rounded-bl-none border-white/10"
-                                        }`}
-                                    onContextMenu={(e) => { e.preventDefault(); if (!msg.deletedForEveryone) setContextMenu({ x: e.clientX, y: e.clientY, msg }); }}
-                                >
-                                    {msg.replyTo && (
-                                        <div className={`text-xs mb-2 border-l-2 pl-2 py-1 rounded ${isMine ? "bg-black/10 border-white/50" : "bg-white/5 border-ios-primary"}`}>
-                                            <p className="font-semibold opacity-80">{msg.replyTo.senderName}</p>
-                                            <p className="opacity-60 truncate">{msg.replyTo.text}</p>
+                            {msg.fileType === "call" ? (
+                                <div className="flex justify-center my-3 animate-fade-in">
+                                    <div className="bg-white/30 backdrop-blur-md border border-white/20 text-chatx-text-secondary text-xs font-medium px-5 py-2.5 rounded-2xl flex items-center gap-3 shadow-sm hover:shadow-md transition-shadow">
+                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center ${isMine ? 'bg-green-500/10' : 'bg-blue-500/10'}`}>
+                                            {msg.text.includes("Video") ? <BsCameraVideo className="text-chatx-primary text-sm" /> : <BsTelephone className="text-chatx-primary text-sm" />}
                                         </div>
-                                    )}
-
-                                    {msg.fileUrl && !msg.deletedForEveryone ? (
-                                        <div className="mb-2 cursor-pointer transition-opacity hover:opacity-90 min-h-[50px] min-w-[200px] bg-black/20 rounded flex items-center justify-center p-2 relative group-item">
-                                            {msg.fileType === "image" ? (
-                                                <img
-                                                    src={`${API}/images/${msg.fileUrl}`}
-                                                    alt="Media"
-                                                    className="rounded-lg max-w-full max-h-[300px] object-cover shadow-md"
-                                                    onClick={() => openMedia(`${API}/images/${msg.fileUrl}`)}
-                                                    onError={(e) => {
-                                                        e.target.style.display = 'none';
-                                                        e.target.parentElement.innerHTML = `<span class="text-xs text-red-400">Failed to load image</span>`;
-                                                    }}
-                                                />
-                                            ) : msg.fileType === "video" ? (
-                                                <video src={`${API}/images/${msg.fileUrl}`} controls className="rounded-lg max-w-full shadow-md" />
-                                            ) : msg.fileType === "audio" ? (
-                                                <div className="w-full min-w-[250px] p-2 bg-black/40 rounded-lg border border-white/10">
-                                                    <audio src={`${API}/images/${msg.fileUrl}`} controls className="w-full h-8" />
-                                                </div>
-                                            ) : (
-                                                <a href={`${API}/images/${msg.fileUrl}`} target="_blank" rel="noreferrer" className="flex items-center gap-2 underline text-white/90">📎 Attachment</a>
-                                            )}
+                                        <div className="flex flex-col">
+                                            <span className="text-chatx-text font-semibold text-xs">
+                                                {msg.text.includes("Video") ? "Video Call" : "Audio Call"}
+                                            </span>
+                                            <span className="text-[10px] text-chatx-text-secondary">
+                                                {isMine ? "Outgoing" : "Incoming"} • {formatTime(msg.createdAt)}
+                                            </span>
                                         </div>
-                                    ) : (
-                                        <p className="text-[15px] leading-relaxed font-light tracking-wide">{msg.text}</p>
-                                    )}
-
-                                    <div className={`text-[9px] font-medium mt-1 flex items-center justify-end gap-1 opacity-70 ${isMine ? "text-white/80" : "text-ios-text-secondary"}`}>
-                                        <span>{formatTime(msg.createdAt)}</span>
-                                        {isMine && !msg.deletedForEveryone && (msg.status === "read" ? <span className="text-white font-bold">✓✓</span> : <span>✓</span>)}
+                                        <button
+                                            onClick={() => initiateCall(msg.text.includes("Video") ? "video" : "audio")}
+                                            className="ml-2 w-8 h-8 rounded-full bg-chatx-primary/10 flex items-center justify-center hover:bg-chatx-primary/20 transition-colors"
+                                        >
+                                            <BsTelephone className="text-chatx-primary text-sm" />
+                                        </button>
                                     </div>
                                 </div>
+                            ) : (
+                                <div className={`flex ${isMine ? "justify-end" : "justify-start"} mb-1 animate-msg-in`}>
+                                    <div
+                                        className={`relative max-w-[70%] px-4 py-2.5 shadow-sm ${isMine
+                                            ? "bg-chatx-primary/95 text-white rounded-2xl rounded-br-md backdrop-blur-sm"
+                                            : "bg-white/50 text-chatx-text rounded-2xl rounded-bl-md backdrop-blur-md border border-white/40"
+                                            }`}
+                                        onContextMenu={(e) => { e.preventDefault(); if (!msg.deletedForEveryone) setContextMenu({ x: e.clientX, y: e.clientY, msg }); }}
+                                    >
+                                        {msg.replyTo && (
+                                            <div className={`text-xs mb-2 border-l-2 pl-2 py-1 rounded ${isMine ? "bg-white/10 border-white/40" : "bg-black/5 border-chatx-accent"}`}>
+                                                <p className="font-semibold opacity-80">{msg.replyTo.senderName}</p>
+                                                <p className="opacity-60 truncate">{msg.replyTo.text}</p>
+                                            </div>
+                                        )}
 
-                                {/* Your Avatar */}
-                                {isMine && (
-                                    <img
-                                        src={getAvatarUrl(currentUser)}
-                                        className="w-8 h-8 rounded-full object-cover mb-1 border border-white/10 bg-black/20"
-                                        onError={(e) => { e.target.src = `https://ui-avatars.com/api/?name=${currentUser.username}&background=0D8ABC&color=fff`; }}
-                                    />
-                                )}
-                            </div>
+                                        {msg.fileUrl && !msg.deletedForEveryone ? (
+                                            <div className="mb-1 cursor-pointer">
+                                                {msg.fileType === "image" ? (
+                                                    <img
+                                                        src={`${API}/images/${msg.fileUrl}`}
+                                                        alt="Media"
+                                                        className="rounded-lg max-w-full max-h-[300px] object-cover"
+                                                        onClick={() => openMedia(`${API}/images/${msg.fileUrl}`)}
+                                                        onError={(e) => {
+                                                            e.target.style.display = 'none';
+                                                            e.target.parentElement.innerHTML = `<span class="text-xs text-red-400">Failed to load image</span>`;
+                                                        }}
+                                                    />
+                                                ) : msg.fileType === "video" ? (
+                                                    <video src={`${API}/images/${msg.fileUrl}`} controls className="rounded-lg max-w-full" />
+                                                ) : msg.fileType === "audio" ? (
+                                                    <div className="w-full min-w-[200px]">
+                                                        <audio src={`${API}/images/${msg.fileUrl}`} controls className="w-full h-8" />
+                                                    </div>
+                                                ) : msg.fileType === "file" ? (
+                                                    <a href={`${API}/images/${msg.fileUrl}`} target="_blank" rel="noreferrer" download className={`flex items-center gap-3 p-3 rounded-xl ${isMine ? 'bg-white/10' : 'bg-white/40'} hover:opacity-80 transition-opacity`}>
+                                                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${isMine ? 'bg-white/20' : 'bg-chatx-primary/10'}`}>
+                                                            <span className="text-lg">📄</span>
+                                                        </div>
+                                                        <div className="flex-1 min-w-0">
+                                                            <p className="text-sm font-medium truncate">{msg.fileUrl.split('_').slice(1).join('_') || 'Document'}</p>
+                                                            <p className={`text-[10px] ${isMine ? 'text-white/60' : 'text-chatx-text-secondary'}`}>Tap to download</p>
+                                                        </div>
+                                                    </a>
+                                                ) : (
+                                                    <a href={`${API}/images/${msg.fileUrl}`} target="_blank" rel="noreferrer" className="flex items-center gap-2 underline">📎 Attachment</a>
+                                                )}
+                                            </div>
+                                        ) : msg.text ? (
+                                            <p className="text-[15px] leading-relaxed">{msg.text}</p>
+                                        ) : null}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Timestamp row */}
+                            {showTime && msg.fileType !== "call" && (
+                                <div className={`flex ${isMine ? "justify-end" : "justify-start"} mb-3 px-2`}>
+                                    <div className="flex items-center gap-1.5">
+                                        {isMine && !msg.deletedForEveryone && (
+                                            <span className={`text-xs ${msg.status === "read" ? "text-white/80" : "text-chatx-text-secondary"}`}>
+                                                <BsCheckLg className="inline" />
+                                                {msg.status === "read" && <BsCheckLg className="inline -ml-1.5" />}
+                                            </span>
+                                        )}
+                                        <span className="text-[11px] text-chatx-text-secondary font-medium">
+                                            {formatTime(msg.createdAt)}
+                                        </span>
+                                    </div>
+                                </div>
+                            )}
                         </React.Fragment>
                     );
                 })}
-                {isTyping && <div className="text-ios-text-secondary text-xs pl-4 animate-pulse">Typing...</div>}
+                {isTyping && (
+                    <div className="flex gap-1.5 items-center px-4 py-2">
+                        <div className="typing-dot bg-white/60"></div>
+                        <div className="typing-dot bg-white/60"></div>
+                        <div className="typing-dot bg-white/60"></div>
+                    </div>
+                )}
                 <div ref={messagesEndRef} />
             </div>
 
             {/* Input Area */}
-            <div className="absolute bottom-0 left-0 w-full z-40 pb-4 px-4 pt-2 bg-gradient-to-t from-black via-black/80 to-transparent">
+            <div className="px-4 pb-4 pt-2 bg-white/30 backdrop-blur-lg border-t border-white/20">
                 {replyTo && (
-                    <div className="px-6 py-2 bg-black/60 backdrop-blur-md border-t border-white/10 flex justify-between items-center animate-slide-up mb-2 rounded-t-xl">
+                    <div className="px-4 py-2 bg-white/40 backdrop-blur-md border border-white/30 rounded-t-xl flex justify-between items-center animate-slide-up mb-1 shadow-sm">
                         <div className="text-sm">
-                            <span className="text-ios-primary font-semibold">Replying to {replyTo.senderName}</span>
-                            <p className="text-ios-text-secondary truncate text-xs">{replyTo.text}</p>
+                            <span className="text-chatx-accent font-semibold">Replying to {replyTo.senderName}</span>
+                            <p className="text-chatx-text-secondary truncate text-xs">{replyTo.text}</p>
                         </div>
-                        <button onClick={() => setReplyTo(null)} className="text-ios-text-secondary hover:text-white text-xl">&times;</button>
+                        <button onClick={() => setReplyTo(null)} className="text-chatx-text-secondary hover:text-chatx-text text-xl">&times;</button>
                     </div>
                 )}
                 <ChatInput handleSendMsg={handleSendMsg} onTyping={() => socket.current.emit("typing", { senderId: currentUser._id, receiverId: currentChat._id })} onStopTyping={() => socket.current.emit("stopTyping", { senderId: currentUser._id, receiverId: currentChat._id })} />
@@ -322,35 +549,17 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
 
             {/* Context Menu */}
             {contextMenu && (
-                <div className="fixed z-50 bg-ios-surface/90 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl py-1 min-w-[160px]" style={{ top: contextMenu.y, left: contextMenu.x }}>
-                    <button onClick={() => { setReplyTo(contextMenu.msg); setContextMenu(null); }} className="w-full text-left px-4 py-2 hover:bg-white/10 text-sm flex items-center gap-3"><BsReply /> Reply</button>
-                    {contextMenu.msg.sender === currentUser._id && <button onClick={() => handleDelete(contextMenu.msg, true)} className="w-full text-left px-4 py-2 hover:bg-white/10 text-sm text-ios-danger flex items-center gap-3"><BsTrash /> Delete</button>}
+                <div className="fixed z-50 bg-white/80 backdrop-blur-xl border border-white/40 rounded-xl shadow-xl py-1 min-w-[160px]" style={{ top: contextMenu.y, left: contextMenu.x }}>
+                    <button onClick={() => { setReplyTo(contextMenu.msg); setContextMenu(null); }} className="w-full text-left px-4 py-2.5 hover:bg-white/50 text-sm flex items-center gap-3 text-chatx-text transition-colors"><BsReply /> Reply</button>
+                    {contextMenu.msg.sender === currentUser._id && <button onClick={() => handleDelete(contextMenu.msg, true)} className="w-full text-left px-4 py-2.5 hover:bg-white/50 text-sm text-chatx-danger flex items-center gap-3 transition-colors"><BsTrash /> Delete</button>}
                 </div>
             )}
 
             {/* Media Viewer Modal */}
             {viewingMedia && (
-                <div className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-4 animate-scale-in" onClick={() => setViewingMedia(null)}>
+                <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-scale-in" onClick={() => setViewingMedia(null)}>
                     <img src={viewingMedia} alt="Full size" className="max-w-full max-h-full rounded-lg shadow-2xl object-contain" />
                     <button className="absolute top-4 right-4 text-white text-3xl p-2 hover:bg-white/10 rounded-full"><BsX /></button>
-                </div>
-            )}
-
-            {/* Video Call Modal */}
-            {inCall && (
-                <div className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-md flex flex-col items-center justify-center animate-scale-in">
-                    <div className="relative w-full max-w-4xl aspect-video bg-black rounded-2xl overflow-hidden shadow-2xl border border-white/10">
-                        <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover transform scale-x-[-1]" />
-                        <div className="absolute top-4 left-4 bg-black/50 px-3 py-1 rounded-full text-white text-sm backdrop-blur-md flex items-center gap-2">
-                            <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span> HD Video Call
-                        </div>
-                    </div>
-                    <div className="mt-8 flex items-center gap-6">
-                        <button className="p-4 bg-white/10 rounded-full text-white hover:bg-white/20 transition-all"><BsMicMute className="text-2xl" /></button>
-                        <button className="p-4 bg-white/10 rounded-full text-white hover:bg-white/20 transition-all"><BsCameraVideoOff className="text-2xl" /></button>
-                        <button onClick={endCall} className="p-4 bg-red-500 rounded-full text-white hover:bg-red-600 transition-all transform hover:scale-110 shadow-lg shadow-red-500/40"><BsTelephone className="text-3xl rotate-[135deg]" /></button>
-                    </div>
-                    <p className="mt-4 text-ios-text-secondary">Calling {currentChat.username}...</p>
                 </div>
             )}
         </div>

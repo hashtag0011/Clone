@@ -1,102 +1,107 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import Picker from "emoji-picker-react";
-import { BsEmojiSmile, BsPaperclip, BsCamera, BsMic, BsStopCircle, BsX } from "react-icons/bs";
-import { IoMdSend } from "react-icons/io";
+import { BsPaperclip, BsMic, BsStopCircle, BsX, BsSend, BsTrash } from "react-icons/bs";
+import { HiOutlineFaceSmile } from "react-icons/hi2";
 import FileTransfer from "../utils/FileTransfer";
 
 export default function ChatInput({ handleSendMsg, onTyping, onStopTyping }) {
     const [msg, setMsg] = useState("");
     const [showEmoji, setShowEmoji] = useState(false);
     const [uploading, setUploading] = useState(false);
-    const [recording, setRecording] = useState(false);
-    const [audioBlob, setAudioBlob] = useState(null);
+    const [isRecording, setIsRecording] = useState(false);
     const [recordingTime, setRecordingTime] = useState(0);
+    const [mediaRecorder, setMediaRecorder] = useState(null);
+    const [audioBlob, setAudioBlob] = useState(null);
+    const [attachedFile, setAttachedFile] = useState(null);
 
-    const typingTimeout = useRef(null);
-    const inputRef = useRef(null);
-    const mediaRecorderRef = useRef(null);
-    const timerRef = useRef(null);
+    const recordingInterval = useRef(null);
+    const fileInputRef = useRef(null);
+    const typingTimeoutRef = useRef(null);
 
-    const handleEmojiClick = (emojiData) => {
-        setMsg((prev) => prev + emojiData.emoji);
-        inputRef.current?.focus();
+    // Close emoji picker on outside click
+    useEffect(() => {
+        const handleClickOutside = (e) => {
+            if (showEmoji && !e.target.closest('.emoji-picker-container')) {
+                setShowEmoji(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [showEmoji]);
+
+    const handleEmojiClick = (emojiObject) => {
+        setMsg((prev) => prev + emojiObject.emoji);
     };
 
-    const handleTypingInput = (e) => {
+    const handleTyping = (e) => {
         setMsg(e.target.value);
-        onTyping();
-        clearTimeout(typingTimeout.current);
-        typingTimeout.current = setTimeout(() => onStopTyping(), 2000);
+        if (onTyping) onTyping();
+        if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = setTimeout(() => {
+            if (onStopTyping) onStopTyping();
+        }, 1000);
     };
 
     const sendChat = (e) => {
         e.preventDefault();
-        if (msg.trim().length > 0) {
-            handleSendMsg({ text: msg.trim(), fileUrl: "", fileType: "text" });
+        if ((msg.trim().length > 0 || attachedFile) && !uploading) {
+            if (attachedFile) {
+                // Determine type
+                const type = attachedFile.type.startsWith('image/') ? 'image' : attachedFile.type.startsWith('video/') ? 'video' : 'file';
+                handleUploadAndSend(attachedFile, type, msg);
+            } else {
+                handleSendMsg({ text: msg, fileUrl: "", fileType: "text" });
+            }
             setMsg("");
-            onStopTyping();
-            clearTimeout(typingTimeout.current);
+            setAttachedFile(null);
+            if (onStopTyping) onStopTyping();
         }
     };
 
-    const handleKeyDown = (e) => {
-        if (e.key === "Enter" && !e.shiftKey) {
-            sendChat(e);
-        }
-    };
-
-    const handleFileUpload = async (e) => {
+    const handleFileSelect = (e) => {
         const file = e.target.files[0];
-        if (!file) return;
-        setUploading(true);
-
-        try {
-            // Use our new "FileTransfer" package
-            const { fileName, fileType } = await FileTransfer.upload(file, (progress) => {
-                console.log(`Upload progress: ${progress}%`);
-            });
-            handleSendMsg({ text: "", fileUrl: fileName, fileType });
-        } catch (err) {
-            console.error(err);
-            alert("File upload failed.");
-        }
-
-        setUploading(false);
-        e.target.value = "";
+        if (file) setAttachedFile(file);
     };
 
-    // Audio Recording
+    const handleUploadAndSend = async (file, type, text) => {
+        setUploading(true);
+        try {
+            const { fileName } = await FileTransfer.upload(file);
+            handleSendMsg({ text: text, fileUrl: fileName, fileType: type });
+        } catch (err) { console.error(err); }
+        setUploading(false);
+    };
+
     const startRecording = async () => {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            mediaRecorderRef.current = new MediaRecorder(stream);
+            const recorder = new MediaRecorder(stream);
             const chunks = [];
 
-            mediaRecorderRef.current.ondataavailable = (e) => chunks.push(e.data);
-            mediaRecorderRef.current.onstop = () => {
-                const blob = new Blob(chunks, { type: "audio/webm" });
+            recorder.ondataavailable = (e) => chunks.push(e.data);
+            recorder.onstop = () => {
+                const blob = new Blob(chunks, { type: 'audio/webm' });
                 setAudioBlob(blob);
             };
 
-            mediaRecorderRef.current.start();
-            setRecording(true);
+            recorder.start();
+            setMediaRecorder(recorder);
+            setIsRecording(true);
             setRecordingTime(0);
-            timerRef.current = setInterval(() => {
-                setRecordingTime(prev => prev + 1);
+
+            recordingInterval.current = setInterval(() => {
+                setRecordingTime((prev) => prev + 1);
             }, 1000);
-        } catch (err) {
-            console.error("Error accessing microphone:", err);
-            alert("Could not access microphone.");
-        }
+        } catch (err) { console.error("Mic access denied", err); }
     };
 
     const stopRecording = () => {
-        if (mediaRecorderRef.current && recording) {
-            mediaRecorderRef.current.stop();
-            mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
-            setRecording(false);
-            clearInterval(timerRef.current);
+        if (mediaRecorder) {
+            mediaRecorder.stop();
+            mediaRecorder.stream.getTracks().forEach(track => track.stop());
+            clearInterval(recordingInterval.current);
+            setIsRecording(false);
         }
     };
 
@@ -106,125 +111,136 @@ export default function ChatInput({ handleSendMsg, onTyping, onStopTyping }) {
     };
 
     const sendAudio = async () => {
-        if (!audioBlob) return;
-        setUploading(true);
-
-        try {
-            const { fileName, fileType } = await FileTransfer.uploadAudio(audioBlob);
-            handleSendMsg({ text: "", fileUrl: fileName, fileType: "audio" });
+        if (audioBlob) {
+            setUploading(true);
+            const file = new File([audioBlob], "voice_msg.webm", { type: "audio/webm" });
+            await handleUploadAndSend(file, "audio", "");
             setAudioBlob(null);
-        } catch (err) { console.error(err); }
-        setUploading(false);
+            setUploading(false);
+        }
     };
+
+    useEffect(() => {
+        if (audioBlob && !isRecording) {
+            // Wait for user to confirm send (handled by UI button change)
+        }
+    }, [audioBlob, isRecording]);
 
     const formatDuration = (sec) => {
-        const min = Math.floor(sec / 60);
+        const m = Math.floor(sec / 60);
         const s = sec % 60;
-        return `${min}:${s < 10 ? "0" + s : s}`;
+        return `${m}:${s < 10 ? '0' + s : s}`;
     };
 
-    // Close emoji picker on outside click
-    useEffect(() => {
-        const handler = (e) => {
-            if (showEmoji && !e.target.closest(".emoji-area")) setShowEmoji(false);
-        };
-        document.addEventListener("click", handler);
-        return () => document.removeEventListener("click", handler);
-    }, [showEmoji]);
-
     return (
-        <div className="flex items-center gap-2 bg-ios-surface/60 backdrop-blur-xl border border-white/10 rounded-full px-2 py-1.5 shadow-lg relative min-h-[50px]">
-            {recording ? (
-                <div className="flex items-center gap-4 w-full px-2 animate-fade-in">
-                    <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse shadow-[0_0_8px_red]"></div>
-                    <span className="text-white font-mono text-sm">{formatDuration(recordingTime)}</span>
-                    <div className="flex-1"></div>
-                    <button onClick={cancelRecording} className="text-ios-danger text-sm font-medium hover:underline">Cancel</button>
-                    <button onClick={stopRecording} className="p-2 bg-white/10 rounded-full hover:bg-white/20 transition-colors">
-                        <BsStopCircle className="text-red-500 text-xl" />
-                    </button>
-                </div>
-            ) : audioBlob ? (
-                <div className="flex items-center gap-4 w-full px-2 animate-slide-in-right">
-                    <button onClick={cancelRecording}><BsX className="text-2xl text-ios-text-secondary hover:text-white" /></button>
-                    <div className="flex-1 h-8 bg-white/10 rounded-full p-1 flex items-center justify-center">
-                        <span className="text-xs text-white">Voice Message Ready</span>
-                    </div>
-                    <button onClick={sendAudio} disabled={uploading} className="p-2 bg-ios-primary text-white rounded-full hover:bg-ios-primary/90 transition-transform hover:scale-105">
-                        <IoMdSend className="text-lg pl-0.5" />
-                    </button>
-                </div>
-            ) : (
-                <>
-                    {/* Attachment Button */}
-                    <label className="p-2 text-ios-primary hover:bg-white/10 rounded-full cursor-pointer transition-colors relative group">
-                        <BsPaperclip className="text-xl rotate-45 transform group-hover:scale-110 transition-transform" />
-                        <input type="file" className="hidden" onChange={handleFileUpload} disabled={uploading} />
-                    </label>
-
-                    {/* Input Field */}
-                    <form className="flex-1 relative" onSubmit={sendChat}>
-                        <input
-                            ref={inputRef}
-                            type="text"
-                            placeholder="iMessage"
-                            value={msg}
-                            onChange={handleTypingInput}
-                            onKeyDown={handleKeyDown}
-                            className="w-full bg-transparent text-white placeholder-ios-text-secondary/60 text-[15px] px-3 py-2 outline-none"
-                            style={{ fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif' }}
+        <div className="flex items-center gap-3 px-2 py-2">
+            {/* Emoji Button */}
+            <div className="relative emoji-picker-container">
+                <button onClick={() => setShowEmoji(!showEmoji)} className="text-chatx-text-secondary hover:text-chatx-accent transition-colors p-2 rounded-full hover:bg-white/20">
+                    <HiOutlineFaceSmile className="text-2xl" />
+                </button>
+                {showEmoji && (
+                    <div className="absolute bottom-14 left-0 shadow-2xl rounded-2xl animate-fade-in z-50">
+                        <Picker
+                            onEmojiClick={handleEmojiClick}
+                            searchDisabled
+                            skinTonesDisabled
+                            height={350}
+                            width={300}
+                            previewConfig={{ showPreview: false }}
                         />
-                    </form>
+                    </div>
+                )}
+            </div>
 
-                    {/* Right Actions */}
-                    <div className="flex items-center gap-1 emoji-area">
-                        {!msg.trim() && (
-                            <>
-                                <button className="p-2 text-ios-text-secondary hover:text-white transition-colors" data-tooltip="Camera">
-                                    <BsCamera className="text-xl" />
-                                </button>
-                                <button
-                                    onClick={startRecording}
-                                    className="p-2 text-ios-text-secondary hover:text-red-500 transition-colors" data-tooltip="Voice"
-                                >
-                                    <BsMic className="text-xl" />
-                                </button>
-                            </>
-                        )}
+            {/* File Attachment */}
+            <div className="relative">
+                <button
+                    onClick={() => fileInputRef.current.click()}
+                    className={`text-chatx-text-secondary hover:text-chatx-primary transition-colors p-2 rounded-full hover:bg-white/20 ${attachedFile ? "text-chatx-primary" : ""}`}
+                >
+                    <BsPaperclip className="text-xl transform rotate-45" />
+                </button>
+                <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleFileSelect}
+                    className="hidden"
+                />
+            </div>
 
-                        <button
-                            onClick={() => setShowEmoji(!showEmoji)}
-                            className="p-2 text-ios-text-secondary hover:text-yellow-400 transition-colors"
-                        >
-                            <BsEmojiSmile className="text-xl" />
+            {/* Input / Recording UI */}
+            {isRecording || audioBlob ? (
+                <div className="flex-1 flex items-center justify-between bg-white/40 backdrop-blur-md border border-white/30 rounded-2xl px-4 py-2 shadow-sm">
+                    {isRecording ? (
+                        <div className="flex items-center gap-3 text-red-500 animate-pulse">
+                            <BsMic className="text-xl" />
+                            <span className="font-medium text-sm">Recording {formatDuration(recordingTime)}</span>
+                        </div>
+                    ) : (
+                        <div className="flex items-center gap-3 text-chatx-text">
+                            <span className="text-xs text-chatx-text-secondary font-medium">Voice Message • {formatDuration(recordingTime)}</span>
+                        </div>
+                    )}
+
+                    <div className="flex items-center gap-2">
+                        <button onClick={cancelRecording} className="p-2 text-red-500 hover:bg-red-50 rounded-full transition-colors" title="Cancel">
+                            <BsTrash />
                         </button>
-
-                        {msg.trim() && (
-                            <button
-                                onClick={sendChat}
-                                className="p-2 bg-ios-primary text-white rounded-full ml-1 hover:bg-ios-primary/90 transition-transform hover:scale-105 shadow-md shadow-ios-primary/40"
-                            >
-                                <IoMdSend className="text-lg pl-0.5" />
+                        {isRecording ? (
+                            <button onClick={stopRecording} className="p-2 text-red-500 hover:bg-red-50 rounded-full transition-colors">
+                                <BsStopCircle className="text-xl" />
+                            </button>
+                        ) : (
+                            <button onClick={sendAudio} disabled={uploading} className="p-2.5 bg-chatx-primary text-white rounded-full hover:opacity-90 transition-opacity disabled:opacity-50 shadow-md">
+                                <BsSend className="text-lg pl-0.5" />
                             </button>
                         )}
-
-                        {showEmoji && (
-                            <div className="absolute bottom-14 right-0 z-50 animate-scale-in origin-bottom-right">
-                                <div className="bg-black/80 backdrop-blur-xl rounded-2xl border border-white/10 overflow-hidden shadow-2xl">
-                                    <Picker
-                                        onEmojiClick={handleEmojiClick}
-                                        theme="dark"
-                                        searchDisabled={false}
-                                        skinTonesDisabled
-                                        width={320}
-                                        height={400}
-                                        previewConfig={{ showPreview: false }}
-                                    />
-                                </div>
-                            </div>
-                        )}
                     </div>
-                </>
+                </div>
+            ) : (
+                <form className="flex-1 flex items-center gap-2 bg-white/40 backdrop-blur-md border border-white/30 rounded-2xl px-4 py-2 shadow-sm transition-all focus-within:bg-white/60 focus-within:shadow-md focus-within:border-white/50" onSubmit={(e) => sendChat(e)}>
+                    {/* File Preview */}
+                    {attachedFile && (
+                        <div className="flex items-center gap-2 bg-white/50 px-3 py-1 rounded-lg mr-2 max-w-[150px]">
+                            <span className="text-xl flex-shrink-0">
+                                {attachedFile.type.startsWith('image/') ? '📷' : attachedFile.type.startsWith('video/') ? '🎥' : '📄'}
+                            </span>
+                            <span className="text-xs truncate">{attachedFile.name}</span>
+                            <button type="button" onClick={() => setAttachedFile(null)} className="ml-1 hover:bg-black/10 rounded-full p-0.5">
+                                <BsX />
+                            </button>
+                        </div>
+                    )}
+
+                    <input
+                        type="text"
+                        placeholder="Type a message..."
+                        className="flex-1 bg-transparent border-none outline-none text-chatx-text placeholder-chatx-text-secondary placeholder-opacity-70 text-[15px]"
+                        value={msg}
+                        onChange={handleTyping}
+                    />
+
+                    {(msg.length > 0 || attachedFile) ? (
+                        <button
+                            type="submit"
+                            className="p-2 bg-chatx-primary text-white rounded-full ml-1 hover:opacity-90 transition-opacity shadow-md"
+                            title="Send message"
+                        >
+                            <BsSend className="text-lg pl-0.5" />
+                        </button>
+                    ) : (
+                        <button
+                            type="button"
+                            onClick={startRecording}
+                            className="p-2 text-chatx-text-secondary hover:bg-white/20 rounded-full transition-colors"
+                            title="Record voice message"
+                        >
+                            <BsMic className="text-xl" />
+                        </button>
+                    )}
+
+                </form>
             )}
         </div>
     );
