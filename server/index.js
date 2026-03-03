@@ -47,8 +47,10 @@ const server = app.listen(process.env.PORT || 5000, () => {
 // Socket.io
 const io = require("socket.io")(server, {
     cors: {
-        origin: process.env.CLIENT_URL || "http://localhost:5173",
+        origin: "*",
+        methods: ["GET", "POST"]
     },
+    transports: ["websocket"]
 });
 
 let users = [];

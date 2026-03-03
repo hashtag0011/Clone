@@ -44,7 +44,7 @@ export default function Chat() {
     // Setup socket
     useEffect(() => {
         if (!currentUser) return;
-        const newSocket = io(API);
+        const newSocket = io(API, { transports: ["websocket"], upgrade: false });
         setSocket(newSocket);
 
         newSocket.on("connect", () => {
