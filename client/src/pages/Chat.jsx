@@ -15,8 +15,7 @@ const API = "http://localhost:5000";
 
 export default function Chat() {
     const navigate = useNavigate();
-    const socketRef = useRef(null);
-    const [socketConnected, setSocketConnected] = useState(false);
+    const [socket, setSocket] = useState(null);
     const [contacts, setContacts] = useState([]);
     const [conversations, setConversations] = useState([]);
     const [currentChat, setCurrentChat] = useState(null);
@@ -46,22 +45,20 @@ export default function Chat() {
     useEffect(() => {
         if (!currentUser) return;
         const newSocket = io(API);
-        socketRef.current = newSocket;
+        setSocket(newSocket);
+
         newSocket.on("connect", () => {
-            setSocketConnected(true);
             newSocket.emit("addUser", currentUser._id);
         });
 
         return () => {
             newSocket.disconnect();
-            socketRef.current = null;
-            setSocketConnected(false);
+            setSocket(null);
         };
     }, [currentUser]);
 
     // Socket listeners
     useEffect(() => {
-        const socket = socketRef.current;
         if (!socket) return;
 
         const handleGetUsers = (users) => setOnlineUsers(users);
@@ -121,7 +118,7 @@ export default function Chat() {
             socket.off("callEnded", handleCallEndedGlobal);
             socket.off("duplicateLogin", handleDuplicateLogin);
         };
-    }, [socketConnected, callActive, currentUser, navigate, contacts]);
+    }, [socket, callActive, currentUser, navigate, contacts]);
 
     // Load contacts
     useEffect(() => {
@@ -155,7 +152,6 @@ export default function Chat() {
 
     // Global notification for incoming messages
     useEffect(() => {
-        const socket = socketRef.current;
         if (!socket || !currentUser) return;
 
         const handler = (data) => {
@@ -166,8 +162,6 @@ export default function Chat() {
 
             // Should play sound?
             if (currentChat && data.senderId === currentChat._id) {
-                // In chat: sound handled by ChatContainer or here?
-                // ChatContainer plays sound too. Let's just update lists.
                 return;
             }
 
@@ -185,18 +179,19 @@ export default function Chat() {
                 notif.onclick = () => { window.focus(); if (sender) setCurrentChat(sender); };
             }
 
+            // Only show one toast (update existing if multiple messages arrive fast)
             toast(
                 <div onClick={() => { if (sender) setCurrentChat(sender); }} className="cursor-pointer">
                     <p className="font-bold text-sm">{senderName}</p>
                     <p className="text-xs truncate">{data.text || "Sent a file"}</p>
                 </div>,
-                { position: "top-right", autoClose: 5000, theme: "light" }
+                { toastId: "new-message-toast", position: "top-right", autoClose: 4000, theme: "light" }
             );
         };
 
         socket.on("getMessage", handler);
         return () => { socket.off("getMessage", handler); };
-    }, [socketConnected, currentChat, contacts, currentUser, loadConversations]);
+    }, [socket, currentChat, contacts, currentUser, loadConversations]);
 
     // Request notification permission
     useEffect(() => {
@@ -211,7 +206,7 @@ export default function Chat() {
 
     const handleLogout = () => {
         localStorage.removeItem("chat-app-user");
-        if (socketRef.current) socketRef.current.disconnect();
+        if (socket) socket.disconnect();
         navigate("/login");
     };
 
@@ -234,7 +229,7 @@ export default function Chat() {
     const rejectCall = () => {
         if (!incomingCall) return;
         stopRingtone();
-        if (socketRef.current) socketRef.current.emit("callRejected", { senderId: incomingCall.senderId, receiverId: currentUser._id });
+        if (socket) socket.emit("callRejected", { senderId: incomingCall.senderId, receiverId: currentUser._id });
         setIncomingCall(null);
     };
 
@@ -295,8 +290,7 @@ export default function Chat() {
                         <ChatContainer
                             currentChat={currentChat}
                             currentUser={currentUser}
-                            socket={socketRef}
-                            socketConnected={socketConnected}
+                            socket={socket}
                             onlineUsers={onlineUsers}
                             typingUsers={typingUsers}
                             refreshConversations={loadConversations}

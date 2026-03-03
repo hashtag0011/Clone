@@ -10,7 +10,7 @@ import Peer from "simple-peer";
 
 const API = "http://localhost:5000";
 
-export default function ChatContainer({ currentChat, currentUser, socket, socketConnected, onlineUsers, typingUsers, refreshConversations, onBack, callActiveProp: callActive, setCallActiveProp: setCallActive }) {
+export default function ChatContainer({ currentChat, currentUser, socket, onlineUsers, typingUsers, refreshConversations, onBack, callActiveProp: callActive, setCallActiveProp: setCallActive }) {
     const [messages, setMessages] = useState([]);
     const [conversation, setConversation] = useState(null);
     const [contextMenu, setContextMenu] = useState(null);
@@ -54,9 +54,9 @@ export default function ChatContainer({ currentChat, currentUser, socket, socket
                     const filtered = msgs.data.filter(m => !(m.deletedFor || []).includes(currentUser._id));
                     setMessages(filtered);
                     await axios.put(`${API}/api/messages/read/${res.data._id}/${currentUser._id}`);
-                    if (socket.current) {
+                    if (socket) {
                         const otherMember = res.data.members.find(m => m !== currentUser._id);
-                        socket.current.emit("markAsRead", {
+                        socket.emit("markAsRead", {
                             conversationId: res.data._id,
                             senderId: otherMember,
                             receiverId: currentUser._id,
@@ -73,23 +73,15 @@ export default function ChatContainer({ currentChat, currentUser, socket, socket
 
     // Socket listeners
     useEffect(() => {
-        if (!socket.current) return;
+        if (!socket) return;
         const handler = (data) => {
             if (currentChat && data.senderId === currentChat._id) {
                 setMessages((prev) => [...prev, { ...data, status: "delivered" }]);
                 playSound("receive");
 
-                // Do NOT show toast here if we are already in the chat seeing the message appear!
-                // The previous code showed toast AND message. User might find that annoying or duplicate.
-                // But let's keep it minimal logic change for now.
-                // Actually, duplicate notification inside chat is usually bad UX.
-                // Chat.jsx handles GLOBAL notifications.
-                // ChatContainer handles LOCAL logic.
-                // I will REMOVE the toast here because the message list updates.
-
                 if (conversation) {
                     axios.put(`${API}/api/messages/read/${conversation._id}/${currentUser._id}`).catch(console.error);
-                    socket.current.emit("markAsRead", {
+                    socket.emit("markAsRead", {
                         conversationId: conversation._id,
                         senderId: currentChat._id,
                         receiverId: currentUser._id,
@@ -97,13 +89,13 @@ export default function ChatContainer({ currentChat, currentUser, socket, socket
                 }
             }
         };
-        socket.current.on("getMessage", handler);
-        return () => { if (socket.current) socket.current.off("getMessage", handler); };
-    }, [socketConnected, currentChat, conversation, currentUser]);
+        socket.on("getMessage", handler);
+        return () => { socket.off("getMessage", handler); };
+    }, [socket, currentChat, conversation, currentUser]);
 
     // Read receipts & deletion
     useEffect(() => {
-        if (!socket.current) return;
+        if (!socket) return;
         const readHandler = ({ conversationId }) => {
             if (conversation && conversationId === conversation._id) {
                 setMessages((prev) => prev.map((m) => m.sender === currentUser._id ? { ...m, status: "read" } : m));
@@ -112,13 +104,13 @@ export default function ChatContainer({ currentChat, currentUser, socket, socket
         const deleteHandler = ({ messageId }) => {
             setMessages((prev) => prev.map((m) => m._id === messageId ? { ...m, text: "🚫 This message was deleted", deletedForEveryone: true, fileUrl: "" } : m));
         };
-        socket.current.on("messagesRead", readHandler);
-        socket.current.on("messageDeleted", deleteHandler);
+        socket.on("messagesRead", readHandler);
+        socket.on("messageDeleted", deleteHandler);
         return () => {
-            socket.current.off("messagesRead", readHandler);
-            socket.current.off("messageDeleted", deleteHandler);
+            socket.off("messagesRead", readHandler);
+            socket.off("messageDeleted", deleteHandler);
         };
-    }, [socketConnected, conversation, currentUser]);
+    }, [socket, conversation, currentUser]);
 
     // Auto-scroll
     useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
@@ -174,7 +166,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, socket
 
     // Remote call ended / rejected handles
     useEffect(() => {
-        if (!socket.current) return;
+        if (!socket) return;
         const handleCallEnded = () => {
             if (callActive) {
                 toast.info("📵 Call ended", { position: "top-center", autoClose: 3000 });
@@ -187,15 +179,13 @@ export default function ChatContainer({ currentChat, currentUser, socket, socket
                 toast.info("📵 Call declined", { position: "top-center", autoClose: 3000 });
             }
         };
-        socket.current.on("callEnded", handleCallEnded);
-        socket.current.on("callRejected", handleCallRejected);
+        socket.on("callEnded", handleCallEnded);
+        socket.on("callRejected", handleCallRejected);
         return () => {
-            if (socket.current) {
-                socket.current.off("callEnded", handleCallEnded);
-                socket.current.off("callRejected", handleCallRejected);
-            }
+            socket.off("callEnded", handleCallEnded);
+            socket.off("callRejected", handleCallRejected);
         };
-    }, [socketConnected, callActive]);
+    }, [socket, callActive]);
 
     // Call Setup & Media Stream
     useEffect(() => {
@@ -206,8 +196,8 @@ export default function ChatContainer({ currentChat, currentUser, socket, socket
         if (!callActive.answered && callActive.direction === 'outgoing') {
             ringTimeout = setTimeout(() => {
                 toast.error("Call not answered", { position: "top-center" });
-                if (socket.current) {
-                    socket.current.emit("endCall", { senderId: currentUser._id, receiverId: currentChat._id });
+                if (socket) {
+                    socket.emit("endCall", { senderId: currentUser._id, receiverId: currentChat._id });
                 }
                 endCallLocally();
             }, 60000);
@@ -243,7 +233,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, socket
                         toast.error("🎤 Microphone access denied. Please allow microphone in browser settings.", { position: "top-center", autoClose: 5000 });
                         if (!cancelled) {
                             endCallLocally();
-                            socket.current?.emit("endCall", { senderId: currentUser._id, receiverId: callActive.direction === 'incoming' ? callActive.callerId : currentChat._id });
+                            socket?.emit("endCall", { senderId: currentUser._id, receiverId: callActive.direction === 'incoming' ? callActive.callerId : currentChat._id });
                         }
                         return;
                     }
@@ -253,7 +243,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, socket
                     toast.error("🎤 Microphone access denied. Please allow microphone in browser settings.", { position: "top-center", autoClose: 5000 });
                     if (!cancelled) {
                         endCallLocally();
-                        socket.current?.emit("endCall", { senderId: currentUser._id, receiverId: callActive.direction === 'incoming' ? callActive.callerId : currentChat._id });
+                        socket?.emit("endCall", { senderId: currentUser._id, receiverId: callActive.direction === 'incoming' ? callActive.callerId : currentChat._id });
                     }
                     return;
                 }
@@ -269,13 +259,15 @@ export default function ChatContainer({ currentChat, currentUser, socket, socket
                 const peer = new Peer({ initiator: true, trickle: false, stream });
 
                 peer.on('signal', data => {
-                    socket.current.emit('callUser', {
-                        senderId: currentUser._id,
-                        receiverId: currentChat._id,
-                        callType: callActive.type,
-                        senderName: currentUser.username,
-                        signalData: data
-                    });
+                    if (socket) {
+                        socket.emit('callUser', {
+                            senderId: currentUser._id,
+                            receiverId: currentChat._id,
+                            callType: callActive.type,
+                            senderName: currentUser.username,
+                            signalData: data
+                        });
+                    }
                 });
 
                 peer.on('stream', remoteStream => {
@@ -284,13 +276,15 @@ export default function ChatContainer({ currentChat, currentUser, socket, socket
 
                 peer.on('error', err => { console.error('Peer error:', err); });
 
-                socket.current.on('callAccepted', signalData => {
-                    if (cancelled) return;
-                    setCallStatus('Connected');
-                    setCallActive(prev => ({ ...prev, answered: true }));
-                    peer.signal(signalData.signal);
-                    startTimer();
-                });
+                if (socket) {
+                    socket.on('callAccepted', signalData => {
+                        if (cancelled) return;
+                        setCallStatus('Connected');
+                        setCallActive(prev => ({ ...prev, answered: true }));
+                        peer.signal(signalData.signal);
+                        startTimer();
+                    });
+                }
 
                 connectionRef.current = peer;
 
@@ -345,7 +339,9 @@ export default function ChatContainer({ currentChat, currentUser, socket, socket
             };
             const res = await axios.post(`${API}/api/messages`, msgData);
             setMessages((prev) => [...prev, res.data]);
-            socket.current.emit("sendMessage", { ...res.data, receiverId: currentChat._id, senderName: currentUser.username });
+            if (socket) {
+                socket.emit("sendMessage", { ...res.data, receiverId: currentChat._id, senderName: currentUser.username });
+            }
             playSound("send");
             setReplyTo(null);
             refreshConversations();
@@ -357,7 +353,9 @@ export default function ChatContainer({ currentChat, currentUser, socket, socket
             await axios.put(`${API}/api/messages/delete/${msg._id}`, { userId: currentUser._id, deleteForEveryone: forEveryone });
             if (forEveryone) {
                 setMessages((prev) => prev.map((m) => m._id === msg._id ? { ...m, text: "🚫 Deleted", deletedForEveryone: true, fileUrl: "" } : m));
-                socket.current.emit("deleteMessage", { messageId: msg._id, receiverId: conversation.members.find(m => m !== currentUser._id), conversationId: conversation._id });
+                if (socket) {
+                    socket.emit("deleteMessage", { messageId: msg._id, receiverId: conversation.members.find(m => m !== currentUser._id), conversationId: conversation._id });
+                }
             } else {
                 setMessages((prev) => prev.filter((m) => m._id !== msg._id));
             }
@@ -379,8 +377,8 @@ export default function ChatContainer({ currentChat, currentUser, socket, socket
         const amAnswered = callActive?.answered;
         const peerId = callActive?.direction === 'incoming' ? callActive.callerId : currentChat._id;
 
-        if (socket.current) {
-            socket.current.emit("endCall", { senderId: currentUser._id, receiverId: peerId });
+        if (socket) {
+            socket.emit("endCall", { senderId: currentUser._id, receiverId: peerId });
         }
 
         endCallLocally();
@@ -452,7 +450,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, socket
                         />
                     </div>
 
-                    <div className="relative z-10 flex flex-col items-center gap-6 animate-fade-in w-full h-full justify-between pb-10 pt-20 pointer-events-none">
+                    <div className="relative z-[40] flex flex-col items-center gap-6 animate-fade-in w-full h-full justify-between pb-10 pt-20 pointer-events-none">
                         {/* Avatar with pulse ring — always visible for audio, visible for video only when not yet connected */}
                         {(!callActive.answered || callActive.type === 'audio') ? (
                             <div className="flex flex-col items-center pointer-events-auto">
@@ -686,12 +684,12 @@ export default function ChatContainer({ currentChat, currentUser, socket, socket
                                 <div className={`flex ${isMine ? "justify-end" : "justify-start"} mb-1 animate-msg-in`}>
                                     <div
                                         className={`relative max-w-[70%] px-4 py-2.5 shadow-sm ${msg.fileType === "audio"
-                                                ? isMine
-                                                    ? "bg-white/20 text-white rounded-[2rem] rounded-br-md backdrop-blur-xl border border-white/30 shadow-[0_4px_30px_rgba(0,0,0,0.1)]"
-                                                    : "bg-white/10 text-chatx-text rounded-[2rem] rounded-bl-md backdrop-blur-xl border border-white/20 shadow-[0_4px_30px_rgba(0,0,0,0.05)]"
-                                                : isMine
-                                                    ? "bg-chatx-primary/95 text-white rounded-2xl rounded-br-md backdrop-blur-sm"
-                                                    : "bg-white/50 text-chatx-text rounded-2xl rounded-bl-md backdrop-blur-md border border-white/40"
+                                            ? isMine
+                                                ? "bg-white/20 text-white rounded-[2rem] rounded-br-md backdrop-blur-xl border border-white/30 shadow-[0_4px_30px_rgba(0,0,0,0.1)]"
+                                                : "bg-white/10 text-chatx-text rounded-[2rem] rounded-bl-md backdrop-blur-xl border border-white/20 shadow-[0_4px_30px_rgba(0,0,0,0.05)]"
+                                            : isMine
+                                                ? "bg-chatx-primary/95 text-white rounded-2xl rounded-br-md backdrop-blur-sm"
+                                                : "bg-white/50 text-chatx-text rounded-2xl rounded-bl-md backdrop-blur-md border border-white/40"
                                             }`}
                                         onContextMenu={(e) => { e.preventDefault(); if (!msg.deletedForEveryone) setContextMenu({ x: e.clientX, y: e.clientY, msg }); }}
                                     >
