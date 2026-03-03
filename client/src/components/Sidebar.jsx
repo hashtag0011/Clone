@@ -4,7 +4,7 @@ import { BsSearch, BsGearFill, BsBoxArrowRight, BsCamera, BsChatDotsFill, BsTele
 import axios from "axios";
 import FileTransfer from "../utils/FileTransfer";
 
-const API = "http://localhost:5000";
+const API = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 export default function Sidebar({
     contacts, conversations, currentUser, onlineUsers,

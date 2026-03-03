@@ -8,7 +8,7 @@ import 'react-toastify/dist/ReactToastify.css';
 import playSound from "../utils/sounds";
 import Peer from "simple-peer";
 
-const API = "http://localhost:5000";
+const API = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 export default function ChatContainer({ currentChat, currentUser, socket, onlineUsers, typingUsers, refreshConversations, onBack, callActiveProp: callActive, setCallActiveProp: setCallActive }) {
     const [messages, setMessages] = useState([]);

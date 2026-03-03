@@ -56,7 +56,7 @@ const Register = () => {
         if (handleValidation()) {
             const { password, username, email } = values;
             try {
-                const { data } = await axios.post("http://localhost:5000/api/auth/register", {
+                const { data } = await axios.post(`${import.meta.env.VITE_API_URL || "http://localhost:5000"}/api/auth/register`, {
                     username,
                     email,
                     password,
