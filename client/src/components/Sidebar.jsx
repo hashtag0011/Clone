@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect } from "react";
-import { BsSearch, BsGearFill, BsBoxArrowRight, BsCamera, BsChatDotsFill, BsTelephone, BsCameraVideo, BsTelephoneOutbound, BsTelephoneInbound } from "react-icons/bs";
+import { BsSearch, BsGearFill, BsBoxArrowRight, BsCamera, BsChatDotsFill, BsTelephone, BsCameraVideo, BsTelephoneOutbound, BsTelephoneInbound, BsMoonFill, BsSunFill } from "react-icons/bs";
 import axios from "axios";
 import FileTransfer from "../utils/FileTransfer";
 
@@ -16,7 +16,21 @@ export default function Sidebar({
     const [uploading, setUploading] = useState(false);
     const [callHistory, setCallHistory] = useState([]);
     const [loadingCalls, setLoadingCalls] = useState(false);
+    const [darkMode, setDarkMode] = useState(() => {
+        return localStorage.getItem("chatx-theme") === "dark";
+    });
     const fileInputRef = useRef(null);
+
+    // Apply dark mode class to <html> on mount and toggle
+    useEffect(() => {
+        if (darkMode) {
+            document.documentElement.classList.add("dark");
+            localStorage.setItem("chatx-theme", "dark");
+        } else {
+            document.documentElement.classList.remove("dark");
+            localStorage.setItem("chatx-theme", "light");
+        }
+    }, [darkMode]);
 
 
 
@@ -126,8 +140,15 @@ export default function Sidebar({
             <div className="flex items-center justify-between px-6 py-5">
                 <h1 className="text-2xl font-bold text-chatx-primary tracking-tight">Chatx</h1>
                 <div className="flex items-center gap-2">
-                    <button className="p-2 rounded-full hover:bg-white/40 transition-colors">
-                        <BsSearch className="text-chatx-text-secondary text-lg" />
+                    {/* Dark mode toggle */}
+                    <button
+                        onClick={() => setDarkMode(d => !d)}
+                        className="p-2 rounded-full hover:bg-white/40 transition-colors"
+                        title={darkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
+                    >
+                        {darkMode
+                            ? <BsSunFill className="text-yellow-400 text-lg" />
+                            : <BsMoonFill className="text-chatx-text-secondary text-lg" />}
                     </button>
                     <div className="relative">
                         <button
@@ -408,14 +429,6 @@ export default function Sidebar({
                 )}
             </div>
 
-            {/* FAB - New Chat */}
-            <div className="relative">
-                <div className="flex justify-end px-6 pb-4">
-                    <button className="w-12 h-12 rounded-full bg-chatx-primary text-white flex items-center justify-center fab-pulse shadow-lg border border-white/20 hover:bg-chatx-primary/90">
-                        <BsChatDotsFill className="text-xl" />
-                    </button>
-                </div>
-            </div>
         </div>
     );
 }

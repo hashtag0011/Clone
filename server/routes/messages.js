@@ -4,7 +4,11 @@ const Conversation = require("../models/Conversation");
 
 // Send message
 router.post("/", async (req, res) => {
-    const newMessage = new Message(req.body);
+    // Sender's own messages start as "read" so they never show in their own unread count
+    const newMessage = new Message({
+        ...req.body,
+        status: "sent", // "sent" for receiver; we handle sender's unread via query (sender: {$ne: userId})
+    });
     try {
         const savedMessage = await newMessage.save();
 
@@ -19,6 +23,7 @@ router.post("/", async (req, res) => {
         res.status(500).json(err);
     }
 });
+
 
 // Get call history for a user (MUST be before /:conversationId to avoid matching "calls" as a conversationId)
 router.get("/calls/:userId", async (req, res) => {

@@ -171,33 +171,78 @@ export default function ChatInput({ handleSendMsg, onTyping, onStopTyping }) {
 
             {/* Input / Recording UI */}
             {isRecording || audioBlob ? (
-                <div className="flex-1 flex items-center justify-between bg-white/40 backdrop-blur-md border border-white/30 rounded-2xl px-4 py-2 shadow-sm">
+                <div className="flex-1 flex items-center justify-between bg-gradient-to-r from-red-500/10 to-rose-500/10 backdrop-blur-md border border-red-200/40 rounded-2xl px-4 py-2.5 shadow-sm gap-3">
                     {isRecording ? (
-                        <div className="flex items-center gap-3 text-red-500 animate-pulse">
-                            <BsMic className="text-xl" />
-                            <span className="font-medium text-sm">Recording {formatDuration(recordingTime)}</span>
-                        </div>
+                        <>
+                            {/* Pulsing record indicator */}
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                                <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse shadow-[0_0_6px_rgba(239,68,68,0.7)]"></span>
+                                <span className="text-red-500 font-semibold text-xs font-mono tracking-wider">{formatDuration(recordingTime)}</span>
+                            </div>
+                            {/* Live waveform bars */}
+                            <div className="flex-1 flex items-center justify-center gap-[3px] h-8">
+                                {[...Array(18)].map((_, i) => (
+                                    <div
+                                        key={i}
+                                        className="w-[3px] rounded-full bg-red-400/80"
+                                        style={{
+                                            height: `${8 + Math.abs(Math.sin((Date.now() / 200) + i * 0.7)) * 20}px`,
+                                            animation: `waveBar ${0.8 + (i % 5) * 0.15}s ease-in-out infinite`,
+                                            animationDelay: `${i * 0.05}s`
+                                        }}
+                                    />
+                                ))}
+                            </div>
+                        </>
                     ) : (
-                        <div className="flex items-center gap-3 text-chatx-text">
-                            <span className="text-xs text-chatx-text-secondary font-medium">Voice Message • {formatDuration(recordingTime)}</span>
-                        </div>
+                        <>
+                            {/* Preview: ready to send */}
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                                <span className="w-2.5 h-2.5 rounded-full bg-chatx-primary shadow-[0_0_6px_rgba(75,112,220,0.6)]"></span>
+                                <span className="text-chatx-text font-semibold text-xs font-mono tracking-wider">{formatDuration(recordingTime)}</span>
+                            </div>
+                            <div className="flex-1 flex items-center justify-center gap-[3px] h-8">
+                                {[...Array(18)].map((_, i) => (
+                                    <div
+                                        key={i}
+                                        className="w-[3px] rounded-full bg-chatx-primary/50"
+                                        style={{ height: `${6 + ((i * 3) % 16)}px` }}
+                                    />
+                                ))}
+                            </div>
+                        </>
                     )}
 
-                    <div className="flex items-center gap-2">
-                        <button onClick={cancelRecording} className="p-2 text-red-500 hover:bg-red-50 rounded-full transition-colors" title="Cancel">
-                            <BsTrash />
+                    {/* Action buttons */}
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                        <button
+                            onClick={cancelRecording}
+                            className="w-9 h-9 rounded-full bg-white/40 flex items-center justify-center text-red-500 hover:bg-red-50/80 transition-colors shadow-sm"
+                            title="Cancel recording"
+                        >
+                            <BsTrash className="text-sm" />
                         </button>
                         {isRecording ? (
-                            <button onClick={stopRecording} className="p-2 text-red-500 hover:bg-red-50 rounded-full transition-colors">
-                                <BsStopCircle className="text-xl" />
+                            <button
+                                onClick={stopRecording}
+                                className="w-9 h-9 rounded-full bg-red-500 flex items-center justify-center text-white hover:bg-red-600 transition-colors shadow-md"
+                                title="Stop recording"
+                            >
+                                <BsStopCircle className="text-sm" />
                             </button>
                         ) : (
-                            <button onClick={sendAudio} disabled={uploading} className="p-2.5 bg-chatx-primary text-white rounded-full hover:opacity-90 transition-opacity disabled:opacity-50 shadow-md">
-                                <BsSend className="text-lg pl-0.5" />
+                            <button
+                                onClick={sendAudio}
+                                disabled={uploading}
+                                className="w-9 h-9 rounded-full bg-chatx-primary flex items-center justify-center text-white hover:opacity-90 transition-opacity shadow-md disabled:opacity-50"
+                                title="Send voice message"
+                            >
+                                <BsSend className="text-sm pl-0.5" />
                             </button>
                         )}
                     </div>
                 </div>
+
             ) : (
                 <form className="flex-1 flex items-center gap-2 bg-white/40 backdrop-blur-md border border-white/30 rounded-2xl px-4 py-2 shadow-sm transition-all focus-within:bg-white/60 focus-within:shadow-md focus-within:border-white/50" onSubmit={(e) => sendChat(e)}>
                     {/* File Preview */}

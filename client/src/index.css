@@ -49,10 +49,32 @@
   height: 100%;
   z-index: -1;
   filter: blur(80px);
-  /* Deep ambient blur */
   opacity: 0.6;
-  /* Softer look */
+  transition: background 0.6s ease;
 }
+
+/* Dark mode liquid background */
+.dark .liquid-bg {
+  background: radial-gradient(circle at 50% 50%, #0f0c29 0%, #302b63 33%, #24243e 66%, #1a1a2e 100%);
+  opacity: 0.85;
+}
+
+/* Dark mode glass panels */
+.dark .glass-panel {
+  background: rgba(15, 20, 40, 0.75);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.dark .glass-c {
+  background: rgba(20, 25, 50, 0.6);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+/* Dark text fixes */
+.dark body {
+  color: #E2E8F0;
+}
+
 
 @keyframes liquidFlow {
   0% {
@@ -314,4 +336,82 @@ audio::-webkit-media-controls-panel {
 .doc-card:hover {
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+/* Mirror mode for self-video */
+.mirror-mode {
+  transform: scaleX(-1);
+}
+
+/* Audio call waveform bars */
+.audio-wave {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 24px;
+}
+
+.audio-wave-bar {
+  width: 3px;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.7);
+  animation: waveBar 1.2s ease-in-out infinite;
+}
+
+.audio-wave-bar:nth-child(1) {
+  animation-delay: 0s;
+  height: 8px;
+}
+
+.audio-wave-bar:nth-child(2) {
+  animation-delay: 0.15s;
+  height: 14px;
+}
+
+.audio-wave-bar:nth-child(3) {
+  animation-delay: 0.3s;
+  height: 20px;
+}
+
+.audio-wave-bar:nth-child(4) {
+  animation-delay: 0.45s;
+  height: 14px;
+}
+
+.audio-wave-bar:nth-child(5) {
+  animation-delay: 0.6s;
+  height: 8px;
+}
+
+@keyframes waveBar {
+
+  0%,
+  100% {
+    transform: scaleY(0.5);
+    opacity: 0.5;
+  }
+
+  50% {
+    transform: scaleY(1.5);
+    opacity: 1;
+  }
+}
+
+/* Connecting pulse for pending call status */
+@keyframes connectingPulse {
+  0% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.3;
+  }
+
+  100% {
+    opacity: 1;
+  }
+}
+
+.connecting-pulse {
+  animation: connectingPulse 1.5s ease-in-out infinite;
 }

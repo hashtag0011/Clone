@@ -58,59 +58,60 @@ const Login = () => {
     };
 
     return (
-        <>
-            {/* Liquid Background */}
-            <div className="liquid-bg z-[-1]">
-                <div className="liquid-blob blob-1"></div>
-                <div className="liquid-blob blob-2"></div>
-                <div className="liquid-blob blob-3"></div>
-            </div>
+        <div className="h-screen w-screen relative overflow-hidden flex items-center justify-center p-4 font-sans bg-[#0A0F1C]">
+            {/* Ambient Background Elements */}
+            <div className="absolute top-[-10%] left-[-10%] w-[500px] h-[500px] rounded-full bg-blue-600/20 blur-[120px] pointer-events-none"></div>
+            <div className="absolute bottom-[-10%] right-[-10%] w-[500px] h-[500px] rounded-full bg-purple-600/20 blur-[120px] pointer-events-none"></div>
 
-            <div className="h-screen w-screen flex flex-col justify-center items-center overflow-hidden">
-                <div className="bg-white/10 backdrop-blur-3xl border border-white/20 rounded-3xl shadow-2xl p-10 sm:p-14 w-full max-w-[420px] flex flex-col items-center animate-scale-in">
-                    <div className="flex items-center gap-3 mb-8 relative group">
-                        <div className="absolute inset-0 bg-ios-primary blur-2xl opacity-30 rounded-full group-hover:opacity-50 transition-opacity"></div>
-                        <BsWhatsapp className="text-ios-primary text-5xl relative z-10 drop-shadow-lg" />
+            <div className="relative z-10 w-full max-w-md bg-white/5 backdrop-blur-2xl border border-white/10 rounded-[2rem] p-10 shadow-2xl animate-fade-in">
+                <div className="flex flex-col items-center mb-10">
+                    <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/30 mb-6 relative group">
+                        <div className="absolute inset-0 bg-white opacity-0 group-hover:opacity-20 transition-opacity rounded-2xl"></div>
+                        <BsWhatsapp className="text-3xl text-white" />
                     </div>
+                    <h1 className="text-3xl font-extrabold text-white tracking-tight mb-2">Welcome Back</h1>
+                    <p className="text-blue-200/60 text-sm">Sign in to continue to Chatx</p>
+                </div>
 
-                    <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-white/70 mb-2 tracking-tight">
-                        Welcome Back
-                    </h1>
-                    <p className="text-ios-text-secondary mb-8 text-sm">Log in to your liquid account</p>
-
-                    <form className="flex flex-col gap-5 w-full" onSubmit={(event) => handleSubmit(event)}>
-                        <div className="space-y-4">
+                <form className="flex flex-col gap-5 w-full" onSubmit={handleSubmit}>
+                    <div className="space-y-4">
+                        <div className="relative">
                             <input
                                 type="email"
                                 placeholder="Email Address"
                                 name="email"
-                                onChange={(e) => handleChange(e)}
-                                className="glass-input w-full px-5 py-3.5 rounded-xl text-sm placeholder-white/40 border border-white/5 focus:border-ios-primary/50 focus:bg-white/10 transition-all font-medium"
+                                onChange={handleChange}
+                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-white placeholder-white/30 focus:outline-none focus:border-blue-500 focus:bg-white/10 transition-all text-sm"
                             />
+                        </div>
+                        <div className="relative">
                             <input
                                 type="password"
                                 placeholder="Password"
                                 name="password"
-                                onChange={(e) => handleChange(e)}
-                                className="glass-input w-full px-5 py-3.5 rounded-xl text-sm placeholder-white/40 border border-white/5 focus:border-ios-primary/50 focus:bg-white/10 transition-all font-medium"
+                                onChange={handleChange}
+                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-white placeholder-white/30 focus:outline-none focus:border-blue-500 focus:bg-white/10 transition-all text-sm"
                             />
                         </div>
+                    </div>
 
-                        <button
-                            type="submit"
-                            className="w-full bg-ios-primary text-white font-semibold py-3.5 rounded-xl hover:bg-ios-primary/90 hover:scale-[1.02] transform transition-all duration-300 shadow-lg shadow-ios-primary/30 mt-2"
-                        >
-                            Log In
-                        </button>
+                    <button
+                        type="submit"
+                        className="w-full mt-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold py-3.5 rounded-xl hover:shadow-lg hover:shadow-blue-500/30 active:scale-[0.98] transition-all"
+                    >
+                        Sign In
+                    </button>
 
-                        <div className="text-center mt-6 text-ios-text-secondary text-sm">
-                            Don't have an account? <Link to="/register" className="text-ios-primary font-bold hover:underline ml-1">Register</Link>
-                        </div>
-                    </form>
-                </div>
-                <ToastContainer />
+                    <p className="text-center text-white/50 text-sm mt-6">
+                        Don't have an account?{" "}
+                        <Link to="/register" className="text-blue-400 hover:text-blue-300 font-semibold transition-colors">
+                            Create one
+                        </Link>
+                    </p>
+                </form>
             </div>
-        </>
+            <ToastContainer />
+        </div>
     );
 };
 

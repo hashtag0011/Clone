@@ -15,7 +15,7 @@ const API = "http://localhost:5000";
 
 export default function Chat() {
     const navigate = useNavigate();
-    const [socket, setSocket] = useState(null);
+    const socketRef = useRef(null);
     const [contacts, setContacts] = useState([]);
     const [conversations, setConversations] = useState([]);
     const [currentChat, setCurrentChat] = useState(null);
@@ -45,14 +45,18 @@ export default function Chat() {
     useEffect(() => {
         if (!currentUser) return;
         const newSocket = io(API);
-        setSocket(newSocket);
+        socketRef.current = newSocket;
         newSocket.emit("addUser", currentUser._id);
 
-        return () => { newSocket.disconnect(); };
+        return () => {
+            newSocket.disconnect();
+            socketRef.current = null;
+        };
     }, [currentUser]);
 
     // Socket listeners
     useEffect(() => {
+        const socket = socketRef.current;
         if (!socket) return;
 
         const handleGetUsers = (users) => setOnlineUsers(users);
@@ -61,34 +65,58 @@ export default function Chat() {
 
         const handleIncomingCall = (data) => {
             if (callActive) {
-                // Busy: could auto-reject or ignore
+                // Already in a call — auto-reject
+                socket.emit("callRejected", { senderId: data.senderId, receiverId: currentUser._id });
                 return;
             }
             setIncomingCall(data);
             playRingtone();
         };
 
-        const handleCallEnded = () => {
+        // When the person we called REJECTED our call
+        const handleCallRejected = () => {
             setCallActive(null);
             setIncomingCall(null);
             stopRingtone();
-            toast.info("Call ended");
+            toast.info("📵 Call declined", { position: "top-center", autoClose: 3000 });
+        };
+
+        // callEnded is handled inside ChatContainer for active calls.
+        // We only handle it here to clean up ringtone / pending incoming state.
+        const handleCallEndedGlobal = () => {
+            stopRingtone();
+            setIncomingCall(null);
+        };
+
+        // Another device/tab logged in with same account
+        const handleDuplicateLogin = () => {
+            toast.error("⚠️ Your account was logged in from another device. You have been signed out.", {
+                position: "top-center", autoClose: 5000
+            });
+            setTimeout(() => {
+                localStorage.removeItem("chat-app-user");
+                navigate("/login");
+            }, 3000);
         };
 
         socket.on("getUsers", handleGetUsers);
         socket.on("userTyping", handleTyping);
         socket.on("userStopTyping", handleStopTyping);
         socket.on("incomingCall", handleIncomingCall);
-        socket.on("callEnded", handleCallEnded);
+        socket.on("callRejected", handleCallRejected);
+        socket.on("callEnded", handleCallEndedGlobal);
+        socket.on("duplicateLogin", handleDuplicateLogin);
 
         return () => {
             socket.off("getUsers", handleGetUsers);
             socket.off("userTyping", handleTyping);
             socket.off("userStopTyping", handleStopTyping);
             socket.off("incomingCall", handleIncomingCall);
-            socket.off("callEnded", handleCallEnded);
+            socket.off("callRejected", handleCallRejected);
+            socket.off("callEnded", handleCallEndedGlobal);
+            socket.off("duplicateLogin", handleDuplicateLogin);
         };
-    }, [socket, callActive]);
+    }, [socketRef.current, callActive, currentUser]);
 
     // Load contacts
     useEffect(() => {
@@ -122,6 +150,7 @@ export default function Chat() {
 
     // Global notification for incoming messages
     useEffect(() => {
+        const socket = socketRef.current;
         if (!socket || !currentUser) return;
 
         const handler = (data) => {
@@ -162,7 +191,7 @@ export default function Chat() {
 
         socket.on("getMessage", handler);
         return () => { socket.off("getMessage", handler); };
-    }, [socket, currentChat, contacts, currentUser, loadConversations]);
+    }, [socketRef.current, currentChat, contacts, currentUser, loadConversations]);
 
     // Request notification permission
     useEffect(() => {
@@ -177,7 +206,7 @@ export default function Chat() {
 
     const handleLogout = () => {
         localStorage.removeItem("chat-app-user");
-        if (socket) socket.disconnect();
+        if (socketRef.current) socketRef.current.disconnect();
         navigate("/login");
     };
 
@@ -187,18 +216,21 @@ export default function Chat() {
         const caller = contacts.find(c => c._id === incomingCall.senderId);
         if (caller) setCurrentChat(caller);
 
-        setCallActive({ type: incomingCall.callType, direction: 'incoming' });
+        setCallActive({
+            type: incomingCall.callType,
+            direction: 'incoming',
+            callerId: incomingCall.senderId,
+            signal: incomingCall.signal
+        });
 
-        socket.emit("callAccepted", { senderId: incomingCall.senderId, receiverId: currentUser._id });
         setIncomingCall(null);
     };
 
     const rejectCall = () => {
         if (!incomingCall) return;
         stopRingtone();
-        socket.emit("callRejected", { senderId: incomingCall.senderId, receiverId: currentUser._id });
+        if (socketRef.current) socketRef.current.emit("callRejected", { senderId: incomingCall.senderId, receiverId: currentUser._id });
         setIncomingCall(null);
-        // Also add a "Missed call" message?
     };
 
     return (
@@ -255,7 +287,7 @@ export default function Chat() {
                         <ChatContainer
                             currentChat={currentChat}
                             currentUser={currentUser}
-                            socket={{ current: socket }} // Adapt to Ref-like prop if needed, or update ChatContainer
+                            socket={socketRef}
                             onlineUsers={onlineUsers}
                             typingUsers={typingUsers}
                             refreshConversations={loadConversations}

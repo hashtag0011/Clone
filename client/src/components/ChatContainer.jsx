@@ -6,6 +6,7 @@ import { BsArrowLeft, BsThreeDots, BsTrash, BsReply, BsX, BsCheckLg, BsTelephone
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import playSound from "../utils/sounds";
+import Peer from "simple-peer";
 
 const API = "http://localhost:5000";
 
@@ -21,12 +22,15 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
     const [callTimer, setCallTimer] = useState(0);
     const [callMuted, setCallMuted] = useState(false);
     const [callVideoOff, setCallVideoOff] = useState(false);
+    const [callStatus, setCallStatus] = useState('');
 
     const scrollRef = useRef();
     const messagesEndRef = useRef();
     const callTimerRef = useRef(null);
     const myVideoRef = useRef(null);
+    const remoteVideoRef = useRef(null);
     const localStreamRef = useRef(null);
+    const connectionRef = useRef(null);
 
     const isOnline = onlineUsers.some((u) => u.userId === currentChat._id);
     const isTyping = typingUsers.includes(currentChat._id);
@@ -126,44 +130,187 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
         return () => window.removeEventListener("click", handler);
     }, []);
 
-    // Call timer & Media Stream
+    // Media Controls
     useEffect(() => {
-        if (callActive) {
-            setCallTimer(0);
-            callTimerRef.current = setInterval(() => {
-                setCallTimer(prev => prev + 1);
-            }, 1000);
-
-            // Access Camera/Mic
-            if (callActive.type === 'video') {
-                navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-                    .then(stream => {
-                        localStreamRef.current = stream;
-                        if (myVideoRef.current) {
-                            myVideoRef.current.srcObject = stream;
-                        }
-                    })
-                    .catch(err => {
-                        console.error("Error accessing media devices:", err);
-                        toast.error("Could not access camera/microphone");
-                    });
-            }
-        } else {
-            clearInterval(callTimerRef.current);
-            setCallTimer(0);
-            // Stop tracks
-            if (localStreamRef.current) {
-                localStreamRef.current.getTracks().forEach(track => track.stop());
-                localStreamRef.current = null;
-            }
+        if (localStreamRef.current) {
+            localStreamRef.current.getAudioTracks().forEach(track => {
+                track.enabled = !callMuted;
+            });
         }
-        return () => {
-            clearInterval(callTimerRef.current);
-            if (localStreamRef.current) {
-                localStreamRef.current.getTracks().forEach(track => track.stop());
+    }, [callMuted]);
+
+    useEffect(() => {
+        if (localStreamRef.current && callActive?.type === 'video') {
+            localStreamRef.current.getVideoTracks().forEach(track => {
+                track.enabled = !callVideoOff;
+            });
+        }
+    }, [callVideoOff, callActive]);
+
+    const startTimer = () => {
+        setCallTimer(0);
+        clearInterval(callTimerRef.current);
+        callTimerRef.current = setInterval(() => setCallTimer(prev => prev + 1), 1000);
+    };
+
+    const endCallLocally = () => {
+        clearInterval(callTimerRef.current);
+        if (localStreamRef.current) {
+            localStreamRef.current.getTracks().forEach(track => track.stop());
+            localStreamRef.current = null;
+        }
+        if (connectionRef.current && !connectionRef.current.destroyed) {
+            connectionRef.current.destroy();
+            connectionRef.current = null;
+        }
+        if (myVideoRef.current) myVideoRef.current.srcObject = null;
+        if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
+
+        setCallActive(null);
+        setCallMuted(false);
+        setCallVideoOff(false);
+        setCallStatus('');
+    };
+
+    // Remote call ended / rejected handles
+    useEffect(() => {
+        if (!socket.current) return;
+        const handleCallEnded = () => {
+            if (callActive) {
+                toast.info("📵 Call ended", { position: "top-center", autoClose: 3000 });
+                endCallLocally();
             }
         };
-    }, [callActive]);
+        const handleCallRejected = () => {
+            if (callActive) {
+                endCallLocally();
+                toast.info("📵 Call declined", { position: "top-center", autoClose: 3000 });
+            }
+        };
+        socket.current.on("callEnded", handleCallEnded);
+        socket.current.on("callRejected", handleCallRejected);
+        return () => {
+            if (socket.current) {
+                socket.current.off("callEnded", handleCallEnded);
+                socket.current.off("callRejected", handleCallRejected);
+            }
+        };
+    }, [socket, callActive]);
+
+    // Call Setup & Media Stream
+    useEffect(() => {
+        if (!callActive || callActive.answered) return;
+
+        let cancelled = false;
+        const isVideo = callActive.type === 'video';
+
+        const setupMedia = async () => {
+            // High-quality constraints
+            const audioConstraints = {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true,
+            };
+            const videoConstraints = isVideo ? { width: { ideal: 1280 }, height: { ideal: 720 } } : false;
+
+            // Helper: try getUserMedia with fallback
+            let stream = null;
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: videoConstraints, audio: audioConstraints });
+            } catch (videoErr) {
+                if (isVideo) {
+                    // Camera denied or unavailable — fallback to audio-only
+                    console.warn("Camera access failed, falling back to audio-only:", videoErr.message);
+                    try {
+                        stream = await navigator.mediaDevices.getUserMedia({ video: false, audio: audioConstraints });
+                        toast.warn("📷 Camera unavailable — continuing with audio only", { position: "top-center", autoClose: 4000 });
+                    } catch (audioErr) {
+                        console.error("Audio access also failed:", audioErr);
+                        toast.error("🎤 Microphone access denied. Please allow microphone in browser settings.", { position: "top-center", autoClose: 5000 });
+                        if (!cancelled) {
+                            endCallLocally();
+                            socket.current?.emit("endCall", { senderId: currentUser._id, receiverId: callActive.direction === 'incoming' ? callActive.callerId : currentChat._id });
+                        }
+                        return;
+                    }
+                } else {
+                    // Audio-only call failed
+                    console.error("Microphone access failed:", videoErr);
+                    toast.error("🎤 Microphone access denied. Please allow microphone in browser settings.", { position: "top-center", autoClose: 5000 });
+                    if (!cancelled) {
+                        endCallLocally();
+                        socket.current?.emit("endCall", { senderId: currentUser._id, receiverId: callActive.direction === 'incoming' ? callActive.callerId : currentChat._id });
+                    }
+                    return;
+                }
+            }
+
+            if (cancelled) { stream.getTracks().forEach(t => t.stop()); return; }
+
+            localStreamRef.current = stream;
+            if (myVideoRef.current) myVideoRef.current.srcObject = stream;
+
+            if (callActive.direction === 'outgoing') {
+                setCallStatus(isOnline ? 'Ringing...' : 'Calling...');
+                const peer = new Peer({ initiator: true, trickle: false, stream });
+
+                peer.on('signal', data => {
+                    socket.current.emit('callUser', {
+                        senderId: currentUser._id,
+                        receiverId: currentChat._id,
+                        callType: callActive.type,
+                        senderName: currentUser.username,
+                        signalData: data
+                    });
+                });
+
+                peer.on('stream', remoteStream => {
+                    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStream;
+                });
+
+                peer.on('error', err => { console.error('Peer error:', err); });
+
+                socket.current.on('callAccepted', signalData => {
+                    if (cancelled) return;
+                    setCallStatus('Connected');
+                    setCallActive(prev => ({ ...prev, answered: true }));
+                    peer.signal(signalData.signal);
+                    startTimer();
+                });
+
+                connectionRef.current = peer;
+
+            } else if (callActive.direction === 'incoming') {
+                setCallStatus('Connecting...');
+                const peer = new Peer({ initiator: false, trickle: false, stream });
+
+                peer.on('signal', data => {
+                    socket.current.emit('callAccepted', {
+                        signal: data,
+                        receiverId: currentUser._id,
+                        senderId: callActive.callerId
+                    });
+                });
+
+                peer.on('stream', remoteStream => {
+                    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStream;
+                });
+
+                peer.on('error', err => { console.error('Peer error:', err); });
+
+                peer.signal(callActive.signal);
+                connectionRef.current = peer;
+
+                setCallStatus('Connected');
+                setCallActive(prev => ({ ...prev, answered: true }));
+                startTimer();
+            }
+        };
+
+        setupMedia();
+        return () => { cancelled = true; };
+    }, [callActive?.direction, callActive?.type, callActive?.answered]);
+
 
     const handleSendMsg = async ({ text, fileUrl, fileType }) => {
         let convId = conversation?._id;
@@ -204,42 +351,51 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
     const initiateCall = async (type) => {
         const text = type === "video" ? "🎥 Video Call" : "📞 Audio Call";
         await handleSendMsg({ text, fileUrl: "", fileType: "call" });
+        // Setting callActive triggers the useEffect which creates the Peer.
+        // The Peer's 'signal' event will emit 'callUser' with the real SDP data.
         setCallActive({ type, direction: 'outgoing' });
-
-        // Emit call signal via socket
-        if (socket.current) {
-            // Send message entry
-            // Also Signal call
-            socket.current.emit("callUser", {
-                senderId: currentUser._id,
-                receiverId: currentChat._id,
-                callType: type,
-                senderName: currentUser.username
-            });
-        }
     };
 
     const endCall = () => {
         const duration = callTimer;
         const type = callActive?.type;
-        setCallActive(null);
-        setCallMuted(false);
-        setCallVideoOff(false);
+        const amAnswered = callActive?.answered;
+        const peerId = callActive?.direction === 'incoming' ? callActive.callerId : currentChat._id;
 
         if (socket.current) {
-            socket.current.emit("endCall", { senderId: currentUser._id, receiverId: currentChat._id });
+            socket.current.emit("endCall", { senderId: currentUser._id, receiverId: peerId });
         }
 
-        const mins = Math.floor(duration / 60);
-        const secs = duration % 60;
-        const durationStr = `${mins}:${secs < 10 ? '0' + secs : secs}`;
-        toast.info(`${type === 'video' ? '🎥 Video' : '📞 Audio'} call ended • ${durationStr}`, { position: "top-center", autoClose: 3000 });
+        endCallLocally();
+
+        if (amAnswered) {
+            const mins = Math.floor(duration / 60);
+            const secs = duration % 60;
+            const durationStr = `${mins}:${secs < 10 ? '0' + secs : secs}`;
+            toast.info(`${type === 'video' ? '🎥 Video' : '📞 Audio'} call ended • ${durationStr}`, { position: "top-center", autoClose: 3000 });
+        }
     };
 
     const formatCallTimer = (sec) => {
         const mins = Math.floor(sec / 60);
         const secs = sec % 60;
         return `${mins < 10 ? '0' + mins : mins}:${secs < 10 ? '0' + secs : secs}`;
+    };
+
+    const formatLastSeen = (lastSeen) => {
+        if (!lastSeen) return 'Last seen recently';
+        const d = new Date(lastSeen);
+        const now = new Date();
+        const diffMs = now - d;
+        const diffMins = Math.floor(diffMs / 60000);
+        const diffHours = Math.floor(diffMs / 3600000);
+        const diffDays = Math.floor(diffMs / 86400000);
+        if (diffMins < 1) return 'Last seen just now';
+        if (diffMins < 60) return `Last seen ${diffMins}m ago`;
+        if (diffHours < 24) return `Last seen ${diffHours}h ago`;
+        if (diffDays === 1) return 'Last seen yesterday';
+        if (diffDays < 7) return `Last seen ${diffDays} days ago`;
+        return `Last seen ${d.toLocaleDateString([], { month: 'short', day: 'numeric' })}`;
     };
 
     const openMedia = (url) => setViewingMedia(url);
@@ -265,52 +421,95 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
 
             {/* Call Overlay */}
             {callActive && (
-                <div className="absolute inset-0 z-[200] flex flex-col items-center justify-center call-overlay">
+                <div className="absolute inset-0 z-[200] flex flex-col items-center justify-center call-overlay bg-black/80">
                     {/* Animated background gradient */}
                     <div className="absolute inset-0 bg-gradient-to-b from-[#1a1a2e] via-[#16213e] to-[#0f3460] opacity-95"></div>
 
-                    {/* Floating particles effect */}
-                    <div className="absolute inset-0 overflow-hidden pointer-events-none">
-                        <div className="call-particle call-particle-1"></div>
-                        <div className="call-particle call-particle-2"></div>
-                        <div className="call-particle call-particle-3"></div>
+                    {/* Remote Video Stream Preview */}
+                    <div className={`absolute inset-0 z-0 ${callActive.type === 'video' && callActive.answered ? 'opacity-100' : 'opacity-0'} transition-opacity duration-500`}>
+                        <video
+                            ref={remoteVideoRef}
+                            autoPlay
+                            playsInline
+                            className="w-full h-full object-cover rounded-3xl"
+                        />
                     </div>
 
-                    <div className="relative z-10 flex flex-col items-center gap-6 animate-fade-in">
-                        {/* Avatar with pulse ring */}
-                        <div className="relative">
-                            <div className="absolute inset-0 rounded-full bg-white/10 animate-ping" style={{ animationDuration: '2s' }}></div>
-                            <div className="absolute -inset-3 rounded-full border-2 border-white/20 animate-pulse"></div>
-                            <img
-                                src={getAvatarUrl(currentChat)}
-                                alt=""
-                                className="w-28 h-28 rounded-full object-cover border-4 border-white/30 shadow-2xl relative z-10"
-                                onError={(e) => { e.target.src = `https://ui-avatars.com/api/?name=${currentChat.username}&background=E8EDF2&color=2B3A4E&size=128`; }}
-                            />
-                            {callActive.type === 'video' && (
-                                <div className="absolute -bottom-1 -right-1 w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center z-20 shadow-lg">
-                                    <BsCameraVideo className="text-white text-sm" />
+                    <div className="relative z-10 flex flex-col items-center gap-6 animate-fade-in w-full h-full justify-between pb-10 pt-20 pointer-events-none">
+                        {/* Avatar with pulse ring — always visible for audio, visible for video only when not yet connected */}
+                        {(!callActive.answered || callActive.type === 'audio') ? (
+                            <div className="flex flex-col items-center pointer-events-auto">
+                                <div className="relative">
+                                    {/* Only pulse while waiting for answer */}
+                                    {!callActive.answered && (
+                                        <>
+                                            <div className="absolute inset-0 rounded-full bg-white/10 animate-ping" style={{ animationDuration: '2s' }}></div>
+                                            <div className="absolute -inset-3 rounded-full border-2 border-white/20 animate-pulse"></div>
+                                        </>
+                                    )}
+                                    <img
+                                        src={getAvatarUrl(currentChat)}
+                                        alt=""
+                                        className={`w-28 h-28 rounded-full object-cover border-4 shadow-2xl relative z-10 bg-white/10 transition-all duration-500
+                                            ${callActive.answered ? 'border-green-400/60' : 'border-white/30'}`}
+                                        onError={(e) => { e.target.src = `https://ui-avatars.com/api/?name=${currentChat.username}&background=E8EDF2&color=2B3A4E&size=128`; }}
+                                    />
+                                    {callActive.type === 'video' && (
+                                        <div className="absolute -bottom-1 -right-1 w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center z-20 shadow-lg">
+                                            <BsCameraVideo className="text-white text-sm" />
+                                        </div>
+                                    )}
                                 </div>
-                            )}
-                        </div>
-
-                        <div className="text-center">
-                            <h2 className="text-white text-2xl font-bold tracking-tight">{currentChat.username}</h2>
-                            <div className="flex items-center justify-center gap-2 mt-2">
-                                <span className={`w-2 h-2 rounded-full animate-pulse ${callActive.direction === 'incoming' ? 'bg-green-400' : 'bg-blue-400'}`}></span>
-                                <p className="text-white/70 text-sm font-medium">
-                                    {callActive.type === 'video' ? 'Video Call' : 'Audio Call'} • {formatCallTimer(callTimer)}
-                                </p>
+                                <div className="text-center mt-6">
+                                    <h2 className="text-white text-2xl font-bold tracking-tight drop-shadow-md">{currentChat.username}</h2>
+                                    <div className="flex items-center justify-center gap-2 mt-2 drop-shadow-md">
+                                        {callActive.answered ? (
+                                            <>
+                                                {/* Green dot + timer */}
+                                                <span className="w-2 h-2 rounded-full bg-green-400"></span>
+                                                <p className="text-white/90 text-sm font-medium">
+                                                    {callActive.type === 'video' ? 'Video Call' : 'Audio Call'} &bull; {formatCallTimer(callTimer)}
+                                                </p>
+                                            </>
+                                        ) : (
+                                            <>
+                                                {/* Pulsing blue dot + status text */}
+                                                <span className="w-2 h-2 rounded-full bg-blue-400 connecting-pulse"></span>
+                                                <p className="text-white/70 text-sm font-medium connecting-pulse">
+                                                    {callStatus || (callActive.direction === 'outgoing' ? 'Calling...' : 'Connecting...')}
+                                                </p>
+                                            </>
+                                        )}
+                                    </div>
+                                    {/* Audio waveform — only when an audio call is live */}
+                                    {callActive.answered && callActive.type === 'audio' && (
+                                        <div className="audio-wave mt-4 mx-auto">
+                                            <div className="audio-wave-bar"></div>
+                                            <div className="audio-wave-bar"></div>
+                                            <div className="audio-wave-bar"></div>
+                                            <div className="audio-wave-bar"></div>
+                                            <div className="audio-wave-bar"></div>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
-                        </div>
+                        ) : (
+                            <div className="w-full flex justify-between px-8 absolute top-8 pointer-events-auto drop-shadow-md">
+                                <div className="text-white">
+                                    <h2 className="text-xl font-bold">{currentChat.username}</h2>
+                                    <p className="text-white/80 text-xs font-medium">{formatCallTimer(callTimer)}</p>
+                                </div>
+                            </div>
+                        )}
+
 
                         {/* Call Controls */}
-                        <div className="flex items-center gap-5 mt-8">
+                        <div className="flex items-center gap-5 mt-auto mb-10 pointer-events-auto">
                             <button
                                 onClick={() => setCallMuted(!callMuted)}
                                 className={`w-14 h-14 rounded-full flex items-center justify-center transition-all duration-300 shadow-lg ${callMuted
                                     ? 'bg-white/30 text-white ring-2 ring-white/50'
-                                    : 'bg-white/15 text-white/90 hover:bg-white/25'
+                                    : 'bg-white/20 text-white/90 hover:bg-white/30 backdrop-blur-md'
                                     }`}
                                 title={callMuted ? "Unmute" : "Mute"}
                             >
@@ -322,7 +521,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
                                     onClick={() => setCallVideoOff(!callVideoOff)}
                                     className={`w-14 h-14 rounded-full flex items-center justify-center transition-all duration-300 shadow-lg ${callVideoOff
                                         ? 'bg-white/30 text-white ring-2 ring-white/50'
-                                        : 'bg-white/15 text-white/90 hover:bg-white/25'
+                                        : 'bg-white/20 text-white/90 hover:bg-white/30 backdrop-blur-md'
                                         }`}
                                     title={callVideoOff ? "Turn on camera" : "Turn off camera"}
                                 >
@@ -342,16 +541,19 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
 
                     {/* Local Video Stream Preview */}
                     {callActive.type === 'video' && (
-                        <div className="absolute bottom-8 right-6 w-36 h-52 bg-black rounded-xl overflow-hidden shadow-2xl border-2 border-white/20 z-30 animate-scale-in">
+                        <div className={`absolute shadow-2xl border-2 border-white/20 z-30 overflow-hidden transition-all duration-500 pointer-events-none
+                             ${callActive.answered ? 'bottom-8 right-6 w-36 h-52 rounded-xl bg-black/50 hover:scale-105 pointer-events-auto' : 'inset-0 w-full h-full rounded-3xl bg-transparent'}`}>
                             <video
                                 ref={myVideoRef}
                                 autoPlay
                                 muted
                                 className="w-full h-full object-cover mirror-mode"
                             />
-                            <div className="absolute bottom-2 left-2 text-[10px] bg-black/50 text-white px-2 py-0.5 rounded-full backdrop-blur-sm">
-                                You
-                            </div>
+                            {callActive.answered && (
+                                <div className="absolute bottom-2 left-2 text-[10px] bg-black/50 text-white px-2 py-0.5 rounded-full backdrop-blur-sm shadow-sm pointer-events-none">
+                                    You
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
@@ -384,7 +586,11 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
                         <p className="text-chatx-text-secondary text-xs">
                             {isTyping ? (
                                 <span className="text-chatx-accent font-medium">typing...</span>
-                            ) : isOnline ? "Online" : "Last seen recently"}
+                            ) : isOnline ? (
+                                <span className="text-green-500 font-medium">Online</span>
+                            ) : (
+                                <span>{formatLastSeen(currentChat.lastSeen)}</span>
+                            )}
                         </p>
                     </div>
                 </div>
@@ -427,24 +633,35 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
                             )}
 
                             {msg.fileType === "call" ? (
-                                <div className="flex justify-center my-3 animate-fade-in">
-                                    <div className="bg-white/30 backdrop-blur-md border border-white/20 text-chatx-text-secondary text-xs font-medium px-5 py-2.5 rounded-2xl flex items-center gap-3 shadow-sm hover:shadow-md transition-shadow">
-                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center ${isMine ? 'bg-green-500/10' : 'bg-blue-500/10'}`}>
-                                            {msg.text.includes("Video") ? <BsCameraVideo className="text-chatx-primary text-sm" /> : <BsTelephone className="text-chatx-primary text-sm" />}
+                                // ── Call Record Card ──────────────────────────────────────
+                                <div className="flex justify-center my-2 animate-fade-in">
+                                    <div className={`flex items-center gap-3 px-4 py-2.5 rounded-2xl border shadow-sm backdrop-blur-md ${isMine
+                                        ? 'bg-gradient-to-r from-chatx-primary/10 to-blue-400/10 border-chatx-primary/20'
+                                        : 'bg-gradient-to-r from-emerald-400/10 to-teal-400/10 border-emerald-400/20'
+                                        }`}>
+                                        {/* Direction icon */}
+                                        <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${isMine ? 'bg-chatx-primary/15' : 'bg-emerald-400/15'
+                                            }`}>
+                                            {msg.text.includes("Video")
+                                                ? <BsCameraVideo className={`text-sm ${isMine ? 'text-chatx-primary' : 'text-emerald-500'}`} />
+                                                : <BsTelephone className={`text-sm ${isMine ? 'text-chatx-primary' : 'text-emerald-500'}`} />}
                                         </div>
-                                        <div className="flex flex-col">
-                                            <span className="text-chatx-text font-semibold text-xs">
-                                                {msg.text.includes("Video") ? "Video Call" : "Audio Call"}
+                                        <div className="flex flex-col min-w-0">
+                                            <span className="text-chatx-text font-semibold text-[13px]">
+                                                {isMine ? '↗ Outgoing' : '↙ Incoming'} {msg.text.includes("Video") ? 'Video' : 'Audio'} call
                                             </span>
-                                            <span className="text-[10px] text-chatx-text-secondary">
-                                                {isMine ? "Outgoing" : "Incoming"} • {formatTime(msg.createdAt)}
-                                            </span>
+                                            <span className="text-[11px] text-chatx-text-secondary">{formatTime(msg.createdAt)}</span>
                                         </div>
+                                        {/* Call-back button */}
                                         <button
                                             onClick={() => initiateCall(msg.text.includes("Video") ? "video" : "audio")}
-                                            className="ml-2 w-8 h-8 rounded-full bg-chatx-primary/10 flex items-center justify-center hover:bg-chatx-primary/20 transition-colors"
+                                            className={`ml-1 w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 transition-colors ${isMine
+                                                ? 'bg-chatx-primary/15 hover:bg-chatx-primary/30 text-chatx-primary'
+                                                : 'bg-emerald-400/15 hover:bg-emerald-400/30 text-emerald-500'
+                                                }`}
+                                            title="Call back"
                                         >
-                                            <BsTelephone className="text-chatx-primary text-sm" />
+                                            <BsTelephone className="text-xs" />
                                         </button>
                                     </div>
                                 </div>
@@ -480,8 +697,44 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
                                                 ) : msg.fileType === "video" ? (
                                                     <video src={`${API}/images/${msg.fileUrl}`} controls className="rounded-lg max-w-full" />
                                                 ) : msg.fileType === "audio" ? (
-                                                    <div className="w-full min-w-[200px]">
-                                                        <audio src={`${API}/images/${msg.fileUrl}`} controls className="w-full h-8" />
+                                                    // ── Voice Message Bubble ──────────────────────────────
+                                                    <div className={`w-full min-w-[220px] flex items-center gap-3 py-1 ${isMine ? '' : ''
+                                                        }`}>
+                                                        {/* Mic icon */}
+                                                        <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${isMine ? 'bg-white/20' : 'bg-chatx-primary/15'
+                                                            }`}>
+                                                            <BsMic className={`text-sm ${isMine ? 'text-white/90' : 'text-chatx-primary'}`} />
+                                                        </div>
+                                                        {/* Fake waveform bars */}
+                                                        <div className="flex items-center gap-[2px] flex-1 h-7">
+                                                            {[10, 16, 8, 20, 14, 18, 10, 22, 12, 16, 8, 18, 14, 10, 16].map((h, i) => (
+                                                                <div
+                                                                    key={i}
+                                                                    className={`w-[3px] rounded-full flex-shrink-0 ${isMine ? 'bg-white/60' : 'bg-chatx-primary/60'
+                                                                        }`}
+                                                                    style={{ height: `${h}px` }}
+                                                                />
+                                                            ))}
+                                                        </div>
+                                                        {/* Native audio (hidden controls, just source) */}
+                                                        <audio
+                                                            src={`${API}/images/${msg.fileUrl}`}
+                                                            id={`audio-${msg._id}`}
+                                                            preload="metadata"
+                                                            className="hidden"
+                                                        />
+                                                        {/* Play button */}
+                                                        <button
+                                                            onClick={() => {
+                                                                const audio = document.getElementById(`audio-${msg._id}`);
+                                                                if (audio.paused) audio.play(); else audio.pause();
+                                                            }}
+                                                            className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 transition-colors shadow-sm ${isMine ? 'bg-white/25 hover:bg-white/35 text-white' : 'bg-chatx-primary/20 hover:bg-chatx-primary/30 text-chatx-primary'
+                                                                }`}
+                                                            title="Play/Pause"
+                                                        >
+                                                            <span className="text-xs pl-0.5">▶</span>
+                                                        </button>
                                                     </div>
                                                 ) : msg.fileType === "file" ? (
                                                     <a href={`${API}/images/${msg.fileUrl}`} target="_blank" rel="noreferrer" download className={`flex items-center gap-3 p-3 rounded-xl ${isMine ? 'bg-white/10' : 'bg-white/40'} hover:opacity-80 transition-opacity`}>

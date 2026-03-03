@@ -74,6 +74,15 @@ io.on("connection", (socket) => {
     console.log("User connected:", socket.id);
 
     socket.on("addUser", async (userId) => {
+        // Prevent simultaneous logins: disconnect existing session for same user
+        const existing = getUser(userId);
+        if (existing && existing.socketId !== socket.id) {
+            // Notify the old session it has been displaced
+            io.to(existing.socketId).emit("duplicateLogin");
+            // Remove old user entry
+            removeUser(existing.socketId);
+        }
+
         addUser(userId, socket.id);
         io.emit("getUsers", users);
         try {
@@ -133,21 +142,22 @@ io.on("connection", (socket) => {
     });
 
     // Call signaling events
-    socket.on("callUser", ({ senderId, receiverId, callType, senderName }) => {
+    socket.on("callUser", ({ senderId, receiverId, callType, senderName, signalData }) => {
         const user = getUser(receiverId);
         if (user) {
             io.to(user.socketId).emit("incomingCall", {
                 senderId,
                 senderName,
                 callType,
+                signal: signalData,
             });
         }
     });
 
-    socket.on("callAccepted", ({ senderId, receiverId }) => {
+    socket.on("callAccepted", ({ senderId, receiverId, signal }) => {
         const user = getUser(senderId);
         if (user) {
-            io.to(user.socketId).emit("callAccepted", { receiverId });
+            io.to(user.socketId).emit("callAccepted", { receiverId, signal });
         }
     });
 
@@ -155,6 +165,13 @@ io.on("connection", (socket) => {
         const user = getUser(senderId);
         if (user) {
             io.to(user.socketId).emit("callRejected", { receiverId });
+        }
+    });
+
+    socket.on("callSignal", ({ senderId, receiverId, signal }) => {
+        const user = getUser(receiverId);
+        if (user) {
+            io.to(user.socketId).emit("callSignal", { senderId, signal });
         }
     });
 
