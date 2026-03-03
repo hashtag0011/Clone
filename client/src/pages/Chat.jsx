@@ -240,7 +240,10 @@ export default function Chat() {
 
             {/* Incoming Call Modal */}
             {incomingCall && (
-                <div className="fixed inset-0 z-[300] bg-black/80 backdrop-blur-sm flex items-center justify-center animate-fade-in">
+                <div
+                    className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center animate-fade-in"
+                    style={{ zIndex: 9999 }}
+                >
                     <div className="bg-white/10 backdrop-blur-xl border border-white/20 p-8 rounded-3xl shadow-2xl flex flex-col items-center gap-6 w-[320px]">
                         <div className="relative">
                             <div className="absolute inset-0 bg-white/20 rounded-full animate-ping"></div>

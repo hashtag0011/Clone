@@ -199,7 +199,21 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
 
     // Call Setup & Media Stream
     useEffect(() => {
-        if (!callActive || callActive.answered) return;
+        if (!callActive) return;
+
+        // Auto hang-up if not answered after 60 seconds (outgoing only)
+        let ringTimeout;
+        if (!callActive.answered && callActive.direction === 'outgoing') {
+            ringTimeout = setTimeout(() => {
+                toast.error("Call not answered", { position: "top-center" });
+                if (socket.current) {
+                    socket.current.emit("endCall", { senderId: currentUser._id, receiverId: currentChat._id });
+                }
+                endCallLocally();
+            }, 60000);
+        }
+
+        if (callActive.answered) return;
 
         let cancelled = false;
         const isVideo = callActive.type === 'video';
@@ -308,7 +322,10 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
         };
 
         setupMedia();
-        return () => { cancelled = true; };
+        return () => {
+            cancelled = true;
+            if (ringTimeout) clearTimeout(ringTimeout);
+        };
     }, [callActive?.direction, callActive?.type, callActive?.answered]);
 
 
@@ -504,7 +521,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
 
 
                         {/* Call Controls */}
-                        <div className="flex items-center gap-5 mt-auto mb-10 pointer-events-auto">
+                        <div className="flex items-center gap-5 mt-auto mb-10 pointer-events-auto relative" style={{ zIndex: 9999 }}>
                             <button
                                 onClick={() => setCallMuted(!callMuted)}
                                 className={`w-14 h-14 rounded-full flex items-center justify-center transition-all duration-300 shadow-lg ${callMuted
@@ -541,8 +558,8 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
 
                     {/* Local Video Stream Preview */}
                     {callActive.type === 'video' && (
-                        <div className={`absolute shadow-2xl border-2 border-white/20 z-30 overflow-hidden transition-all duration-500 pointer-events-none
-                             ${callActive.answered ? 'bottom-8 right-6 w-36 h-52 rounded-xl bg-black/50 hover:scale-105 pointer-events-auto' : 'inset-0 w-full h-full rounded-3xl bg-transparent'}`}>
+                        <div className={`absolute shadow-2xl border-2 border-white/20 z-30 overflow-hidden transition-all duration-500
+                             ${callActive.answered ? 'bottom-8 right-6 w-36 h-52 rounded-xl bg-black/50 hover:scale-105 pointer-events-auto' : 'inset-0 w-full h-full rounded-3xl bg-transparent pointer-events-none'}`}>
                             <video
                                 ref={myVideoRef}
                                 autoPlay
