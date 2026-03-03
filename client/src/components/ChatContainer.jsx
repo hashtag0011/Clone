@@ -10,7 +10,7 @@ import Peer from "simple-peer";
 
 const API = "http://localhost:5000";
 
-export default function ChatContainer({ currentChat, currentUser, socket, onlineUsers, typingUsers, refreshConversations, onBack, callActiveProp: callActive, setCallActiveProp: setCallActive }) {
+export default function ChatContainer({ currentChat, currentUser, socket, socketConnected, onlineUsers, typingUsers, refreshConversations, onBack, callActiveProp: callActive, setCallActiveProp: setCallActive }) {
     const [messages, setMessages] = useState([]);
     const [conversation, setConversation] = useState(null);
     const [contextMenu, setContextMenu] = useState(null);
@@ -99,7 +99,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
         };
         socket.current.on("getMessage", handler);
         return () => { if (socket.current) socket.current.off("getMessage", handler); };
-    }, [socket, currentChat, conversation]);
+    }, [socketConnected, currentChat, conversation, currentUser]);
 
     // Read receipts & deletion
     useEffect(() => {
@@ -118,7 +118,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
             socket.current.off("messagesRead", readHandler);
             socket.current.off("messageDeleted", deleteHandler);
         };
-    }, [socket, conversation]);
+    }, [socketConnected, conversation, currentUser]);
 
     // Auto-scroll
     useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
@@ -195,7 +195,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
                 socket.current.off("callRejected", handleCallRejected);
             }
         };
-    }, [socket, callActive]);
+    }, [socketConnected, callActive]);
 
     // Call Setup & Media Stream
     useEffect(() => {
@@ -685,9 +685,13 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
                             ) : (
                                 <div className={`flex ${isMine ? "justify-end" : "justify-start"} mb-1 animate-msg-in`}>
                                     <div
-                                        className={`relative max-w-[70%] px-4 py-2.5 shadow-sm ${isMine
-                                            ? "bg-chatx-primary/95 text-white rounded-2xl rounded-br-md backdrop-blur-sm"
-                                            : "bg-white/50 text-chatx-text rounded-2xl rounded-bl-md backdrop-blur-md border border-white/40"
+                                        className={`relative max-w-[70%] px-4 py-2.5 shadow-sm ${msg.fileType === "audio"
+                                                ? isMine
+                                                    ? "bg-white/20 text-white rounded-[2rem] rounded-br-md backdrop-blur-xl border border-white/30 shadow-[0_4px_30px_rgba(0,0,0,0.1)]"
+                                                    : "bg-white/10 text-chatx-text rounded-[2rem] rounded-bl-md backdrop-blur-xl border border-white/20 shadow-[0_4px_30px_rgba(0,0,0,0.05)]"
+                                                : isMine
+                                                    ? "bg-chatx-primary/95 text-white rounded-2xl rounded-br-md backdrop-blur-sm"
+                                                    : "bg-white/50 text-chatx-text rounded-2xl rounded-bl-md backdrop-blur-md border border-white/40"
                                             }`}
                                         onContextMenu={(e) => { e.preventDefault(); if (!msg.deletedForEveryone) setContextMenu({ x: e.clientX, y: e.clientY, msg }); }}
                                     >

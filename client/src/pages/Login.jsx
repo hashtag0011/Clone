@@ -58,12 +58,15 @@ const Login = () => {
     };
 
     return (
-        <div className="h-screen w-screen relative overflow-hidden flex items-center justify-center p-4 font-sans bg-[#0A0F1C]">
-            {/* Ambient Background Elements */}
-            <div className="absolute top-[-10%] left-[-10%] w-[500px] h-[500px] rounded-full bg-blue-600/20 blur-[120px] pointer-events-none"></div>
-            <div className="absolute bottom-[-10%] right-[-10%] w-[500px] h-[500px] rounded-full bg-purple-600/20 blur-[120px] pointer-events-none"></div>
+        <div className="h-screen w-screen relative overflow-hidden flex items-center justify-center p-4 font-sans bg-transparent">
+            {/* Liquid Background restored */}
+            <div className="liquid-bg z-[-1] absolute inset-0">
+                <div className="liquid-blob blob-1"></div>
+                <div className="liquid-blob blob-2"></div>
+                <div className="liquid-blob blob-3"></div>
+            </div>
 
-            <div className="relative z-10 w-full max-w-md bg-white/5 backdrop-blur-2xl border border-white/10 rounded-[2rem] p-10 shadow-2xl animate-fade-in">
+            <div className="relative z-10 w-full max-w-md bg-white/10 backdrop-blur-3xl border border-white/20 rounded-[2rem] p-10 shadow-[0_8px_32px_0_rgba(31,38,135,0.37)] animate-fade-in">
                 <div className="flex flex-col items-center mb-10">
                     <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/30 mb-6 relative group">
                         <div className="absolute inset-0 bg-white opacity-0 group-hover:opacity-20 transition-opacity rounded-2xl"></div>
@@ -81,7 +84,7 @@ const Login = () => {
                                 placeholder="Email Address"
                                 name="email"
                                 onChange={handleChange}
-                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-white placeholder-white/30 focus:outline-none focus:border-blue-500 focus:bg-white/10 transition-all text-sm"
+                                className="w-full bg-white/10 backdrop-blur-md border border-white/20 rounded-xl px-4 py-3.5 text-white placeholder-white/50 focus:outline-none focus:border-white/50 focus:bg-white/20 transition-all text-sm shadow-sm"
                             />
                         </div>
                         <div className="relative">
@@ -90,7 +93,7 @@ const Login = () => {
                                 placeholder="Password"
                                 name="password"
                                 onChange={handleChange}
-                                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-white placeholder-white/30 focus:outline-none focus:border-blue-500 focus:bg-white/10 transition-all text-sm"
+                                className="w-full bg-white/10 backdrop-blur-md border border-white/20 rounded-xl px-4 py-3.5 text-white placeholder-white/50 focus:outline-none focus:border-white/50 focus:bg-white/20 transition-all text-sm shadow-sm"
                             />
                         </div>
                     </div>

@@ -16,6 +16,7 @@ const API = "http://localhost:5000";
 export default function Chat() {
     const navigate = useNavigate();
     const socketRef = useRef(null);
+    const [socketConnected, setSocketConnected] = useState(false);
     const [contacts, setContacts] = useState([]);
     const [conversations, setConversations] = useState([]);
     const [currentChat, setCurrentChat] = useState(null);
@@ -46,11 +47,15 @@ export default function Chat() {
         if (!currentUser) return;
         const newSocket = io(API);
         socketRef.current = newSocket;
-        newSocket.emit("addUser", currentUser._id);
+        newSocket.on("connect", () => {
+            setSocketConnected(true);
+            newSocket.emit("addUser", currentUser._id);
+        });
 
         return () => {
             newSocket.disconnect();
             socketRef.current = null;
+            setSocketConnected(false);
         };
     }, [currentUser]);
 
@@ -116,7 +121,7 @@ export default function Chat() {
             socket.off("callEnded", handleCallEndedGlobal);
             socket.off("duplicateLogin", handleDuplicateLogin);
         };
-    }, [socketRef.current, callActive, currentUser]);
+    }, [socketConnected, callActive, currentUser, navigate, contacts]);
 
     // Load contacts
     useEffect(() => {
@@ -191,7 +196,7 @@ export default function Chat() {
 
         socket.on("getMessage", handler);
         return () => { socket.off("getMessage", handler); };
-    }, [socketRef.current, currentChat, contacts, currentUser, loadConversations]);
+    }, [socketConnected, currentChat, contacts, currentUser, loadConversations]);
 
     // Request notification permission
     useEffect(() => {
@@ -291,6 +296,7 @@ export default function Chat() {
                             currentChat={currentChat}
                             currentUser={currentUser}
                             socket={socketRef}
+                            socketConnected={socketConnected}
                             onlineUsers={onlineUsers}
                             typingUsers={typingUsers}
                             refreshConversations={loadConversations}
