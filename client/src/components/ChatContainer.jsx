@@ -209,13 +209,20 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
         const isVideo = callActive.type === 'video';
 
         const setupMedia = async () => {
-            // High-quality constraints
+            // HD audio + video constraints
             const audioConstraints = {
                 echoCancellation: true,
                 noiseSuppression: true,
                 autoGainControl: true,
+                sampleRate: 48000,
+                channelCount: 1,
             };
-            const videoConstraints = isVideo ? { width: { ideal: 1280 }, height: { ideal: 720 } } : false;
+            const videoConstraints = isVideo ? {
+                width: { ideal: 1920, max: 1920 },
+                height: { ideal: 1080, max: 1080 },
+                frameRate: { ideal: 30 },
+                facingMode: "user",
+            } : false;
 
             // Helper: try getUserMedia with fallback
             let stream = null;
@@ -686,12 +693,12 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
                                 <div className={`flex ${isMine ? "justify-end" : "justify-start"} mb-1 animate-msg-in`}>
                                     <div
                                         className={`relative max-w-[70%] px-4 py-2.5 shadow-md ${msg.fileType === "audio"
-                                                ? isMine
-                                                    ? "bg-[#1d4ed8] text-white rounded-[2rem] rounded-br-sm"
-                                                    : "bg-[#e5e7eb] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 rounded-[2rem] rounded-bl-sm"
-                                                : isMine
-                                                    ? "bg-[#2563eb] text-white rounded-2xl rounded-br-sm"
-                                                    : "bg-white dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 rounded-2xl rounded-bl-sm border border-gray-100 dark:border-gray-700"
+                                            ? isMine
+                                                ? "bg-[#1d4ed8] text-white rounded-[2rem] rounded-br-sm"
+                                                : "bg-[#e5e7eb] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 rounded-[2rem] rounded-bl-sm"
+                                            : isMine
+                                                ? "bg-[#2563eb] text-white rounded-2xl rounded-br-sm"
+                                                : "bg-white dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 rounded-2xl rounded-bl-sm border border-gray-100 dark:border-gray-700"
                                             }`}
                                         onContextMenu={(e) => { e.preventDefault(); if (!msg.deletedForEveryone) setContextMenu({ x: e.clientX, y: e.clientY, msg }); }}
                                     >

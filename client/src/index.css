@@ -20,22 +20,32 @@
     --color-input: #F1F5F9;
   }
 
+  /* ── Premium Dark Mode (Zinc palette) ── */
   .dark {
-    --color-bg: #09090b;
-    /* Deep Dark Background */
-    --color-surface: #121214;
-    /* Elevated Light Dark */
-    --color-primary: #18181b;
-    /* Secondary Panels */
-    --color-accent: #2563eb;
+    --color-bg: #0e0e10;
+    /* near-black */
+    --color-surface: #18181b;
+    /* zinc-900   */
+    --color-primary: #27272a;
+    /* zinc-800   */
+    --color-accent: #6366f1;
+    /* indigo-500 */
     --color-text: #f4f4f5;
+    /* zinc-100   */
     --color-text-secondary: #a1a1aa;
-    --color-incoming: #18181b;
-    --color-outgoing: #2563eb;
-    --color-separator: #27272a;
-    --color-tab-bg: #09090b;
-    --color-tab-active: #27272a;
-    --color-input: #18181b;
+    /* zinc-400   */
+    --color-incoming: #27272a;
+    /* zinc-800   */
+    --color-outgoing: #4f46e5;
+    /* indigo-600 */
+    --color-separator: #3f3f46;
+    /* zinc-700   */
+    --color-tab-bg: #18181b;
+    /* zinc-900   */
+    --color-tab-active: #3f3f46;
+    /* zinc-700   */
+    --color-input: #27272a;
+    /* zinc-800   */
   }
 
   html,

@@ -44,6 +44,18 @@ export default function Chat() {
     // Setup socket
     useEffect(() => {
         if (!currentUser) return;
+        // Unlock AudioContext on first user interaction (required by browsers)
+        const unlockAudio = () => {
+            try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                ctx.resume().then(() => ctx.close());
+            } catch (e) { }
+            document.removeEventListener("click", unlockAudio, true);
+            document.removeEventListener("touchstart", unlockAudio, true);
+        };
+        document.addEventListener("click", unlockAudio, { capture: true, once: true });
+        document.addEventListener("touchstart", unlockAudio, { capture: true, once: true });
+
         const newSocket = io(API, { transports: ["websocket"], upgrade: false });
         setSocket(newSocket);
 
@@ -274,8 +286,8 @@ export default function Chat() {
                             <p className="text-white/60 text-sm font-medium tracking-widest uppercase mb-1">Incoming {incomingCall.callType} call</p>
                             <h2 className="text-white text-3xl font-extrabold tracking-tight drop-shadow-lg">{incomingCall.senderName}</h2>
                             <div className={`inline-flex items-center gap-1.5 mt-2 px-3 py-1 rounded-full text-xs font-semibold ${incomingCall.callType === "video"
-                                    ? "bg-blue-500/20 text-blue-300 border border-blue-500/30"
-                                    : "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                                ? "bg-blue-500/20 text-blue-300 border border-blue-500/30"
+                                : "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
                                 }`}>
                                 {incomingCall.callType === "video" ? <BsCameraVideo /> : <BsTelephone />}
                                 {incomingCall.callType === "video" ? "Video Call" : "Audio Call"}

@@ -1,95 +1,102 @@
 
-// Simple & Reliable HTML5 Audio Player for Chat Sounds
+// Lazy-initialise AudioContext so browsers don't block it before user gesture
+let audioCtx = null;
+let ringtoneTimer = null;
 
-const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-let ringtoneOscillator = null;
-
-export const playSound = (type) => {
-    if (audioCtx.state === 'suspended') {
+function getCtx() {
+    if (!audioCtx) {
+        try {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        } catch (e) {
+            console.error("AudioContext failed:", e);
+            return null;
+        }
+    }
+    if (audioCtx.state === "suspended") {
         audioCtx.resume();
     }
+    return audioCtx;
+}
+
+// ─── Short UI sounds ───────────────────────────────────────────────────────────
+export const playSound = (type) => {
+    const ctx = getCtx();
+    if (!ctx) return;
 
     try {
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
         osc.connect(gain);
-        gain.connect(audioCtx.destination);
+        gain.connect(ctx.destination);
 
+        const now = ctx.currentTime;
         if (type === "send") {
-            // High pitch "ping"
-            osc.frequency.setValueAtTime(800, audioCtx.currentTime);
-            osc.frequency.exponentialRampToValueAtTime(400, audioCtx.currentTime + 0.1);
-            gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
-            osc.start();
-            osc.stop(audioCtx.currentTime + 0.1);
+            osc.type = "sine";
+            osc.frequency.setValueAtTime(800, now);
+            osc.frequency.exponentialRampToValueAtTime(500, now + 0.1);
+            gain.gain.setValueAtTime(0.12, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+            osc.start(now);
+            osc.stop(now + 0.12);
         } else if (type === "receive") {
-            // Lower pitch "bloop" (receive)
-            osc.frequency.setValueAtTime(400, audioCtx.currentTime);
-            osc.frequency.exponentialRampToValueAtTime(600, audioCtx.currentTime + 0.15);
-            gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
-            osc.start();
-            osc.stop(audioCtx.currentTime + 0.15);
+            osc.type = "sine";
+            osc.frequency.setValueAtTime(440, now);
+            osc.frequency.exponentialRampToValueAtTime(660, now + 0.15);
+            gain.gain.setValueAtTime(0.15, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
+            osc.start(now);
+            osc.stop(now + 0.18);
         }
     } catch (e) {
-        console.error("Sound Error:", e);
+        console.error("Sound error:", e);
     }
 };
 
+// ─── Phone ringtone ────────────────────────────────────────────────────────────
+// Classic double-ring pattern: two short beeps then a pause
+function _ringBeep(ctx, freq1, freq2, startTime, duration) {
+    [freq1, freq2].forEach((freq) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.type = "sine";
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0, startTime);
+        gain.gain.linearRampToValueAtTime(0.3, startTime + 0.02);
+        gain.gain.setValueAtTime(0.3, startTime + duration - 0.05);
+        gain.gain.linearRampToValueAtTime(0, startTime + duration);
+        osc.start(startTime);
+        osc.stop(startTime + duration);
+    });
+}
+
 export const playRingtone = () => {
-    if (ringtoneOscillator) return; // Already playing
-    if (audioCtx.state === 'suspended') audioCtx.resume();
+    if (ringtoneTimer) return; // already ringing
 
-    try {
-        const playNote = () => {
-            // If stopped in between
-            if (!ringtoneOscillator || !ringtoneOscillator.active) return;
+    const ctx = getCtx();
+    if (!ctx) return;
 
-            const now = audioCtx.currentTime;
+    let active = true;
 
-            // Note 1 (Harmonic bell-like tone)
-            const o1 = audioCtx.createOscillator();
-            const g1 = audioCtx.createGain();
-            o1.connect(g1);
-            g1.connect(audioCtx.destination);
-            o1.type = 'sine';
-            o1.frequency.setValueAtTime(659.25, now); // E5
-            g1.gain.setValueAtTime(0, now);
-            g1.gain.linearRampToValueAtTime(0.2, now + 0.05);
-            g1.gain.exponentialRampToValueAtTime(0.001, now + 1.2);
-            o1.start(now);
-            o1.stop(now + 1.2);
+    const doRing = () => {
+        if (!active) return;
+        const now = ctx.currentTime;
+        // Two short beeps
+        _ringBeep(ctx, 480, 620, now, 0.4);
+        _ringBeep(ctx, 480, 620, now + 0.5, 0.4);
+        // gap until next ring cycle (2.5 s total)
+    };
 
-            // Note 2 (Lower harmonic)
-            const o2 = audioCtx.createOscillator();
-            const g2 = audioCtx.createGain();
-            o2.connect(g2);
-            g2.connect(audioCtx.destination);
-            o2.type = 'sine';
-            o2.frequency.setValueAtTime(523.25, now + 0.3); // C5
-            g2.gain.setValueAtTime(0, now + 0.3);
-            g2.gain.linearRampToValueAtTime(0.2, now + 0.35);
-            g2.gain.exponentialRampToValueAtTime(0.001, now + 1.5);
-            o2.start(now + 0.3);
-            o2.stop(now + 1.5);
-        };
-
-        playNote(); // Start immediately
-        const intervalId = setInterval(playNote, 2500); // Loop every 2.5 seconds
-
-        ringtoneOscillator = { intervalId, active: true };
-    } catch (e) { console.error(e); }
+    doRing();
+    ringtoneTimer = { timerId: setInterval(doRing, 2500), active };
 };
 
 export const stopRingtone = () => {
-    if (ringtoneOscillator) {
-        try {
-            ringtoneOscillator.active = false;
-            if (ringtoneOscillator.intervalId) clearInterval(ringtoneOscillator.intervalId);
-            // Oscillators stop themselves via scheduled parameters
-        } catch (e) { }
-        ringtoneOscillator = null;
+    if (ringtoneTimer) {
+        clearInterval(ringtoneTimer.timerId);
+        ringtoneTimer.active = false;
+        ringtoneTimer = null;
     }
 };
 
