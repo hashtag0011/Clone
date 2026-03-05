@@ -47,11 +47,11 @@ export default function Chat() {
         }
     }, [navigate]);
 
-    // ── Setup socket (runs once per user) ─────────────────────────────────────
+    // ── Setup socket ──────────────────────────────────────────────────────────
     useEffect(() => {
         if (!currentUser) return;
 
-        // Unlock AudioContext on FIRST user interaction (browsers require this)
+        // Unlock AudioContext on first interaction
         const unlockAudio = () => {
             try {
                 const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -61,53 +61,100 @@ export default function Chat() {
         document.addEventListener("click", unlockAudio, { capture: true, once: true });
         document.addEventListener("touchstart", unlockAudio, { capture: true, once: true });
 
-        const newSocket = io(API, {
+        const sock = io(API, {
             transports: ["websocket"],
             upgrade: false,
             reconnection: true,
             reconnectionAttempts: Infinity,
             reconnectionDelay: 1000,
-        });
-        setSocket(newSocket);
-
-        newSocket.on("connect", () => {
-            console.log("✅ Socket connected:", newSocket.id);
-            newSocket.emit("addUser", currentUser._id);
+            autoConnect: false, // ← register events FIRST, then connect
         });
 
-        newSocket.on("disconnect", (reason) => {
+        // ── Register ALL events BEFORE connecting ──
+        sock.on("connect", () => {
+            console.log("✅ Socket connected:", sock.id);
+            sock.emit("addUser", currentUser._id);
+        });
+
+        // Re-send addUser after every reconnect
+        sock.on("reconnect", () => {
+            console.log("🔁 Socket reconnected");
+            sock.emit("addUser", currentUser._id);
+        });
+
+        sock.on("disconnect", (reason) => {
             console.warn("⚠️ Socket disconnected:", reason);
         });
 
-        // ── CALL EVENTS — registered once, use refs for latest state ──
-        newSocket.on("incomingCall", (data) => {
+        // ── Incoming call ──────────────────────────────────────────────────────
+        sock.on("incomingCall", (data) => {
             console.log("📞 incomingCall received:", data);
+
             if (callActiveRef.current) {
-                // Already in a call — auto-reject
-                newSocket.emit("callRejected", {
-                    senderId: data.senderId,
-                    receiverId: currentUserRef.current._id
-                });
+                sock.emit("callRejected", { senderId: data.senderId, receiverId: currentUserRef.current._id });
                 return;
             }
+
+            // Show the popup
             setIncomingCall(data);
+
+            // Play ringtone
             playRingtone();
+
+            // Native browser notification (works even if tab is in background)
+            if ("Notification" in window) {
+                const showNativeNotif = () => {
+                    try {
+                        new Notification(`📞 Incoming ${data.callType} call`, {
+                            body: `${data.senderName} is calling you...`,
+                            icon: "/logo192.png",
+                            requireInteraction: true,
+                            tag: "incoming-call",
+                        });
+                    } catch (e) { }
+                };
+                if (Notification.permission === "granted") {
+                    showNativeNotif();
+                } else if (Notification.permission === "default") {
+                    Notification.requestPermission().then(p => { if (p === "granted") showNativeNotif(); });
+                }
+            }
+
+            // Vibrate on mobile (1-second pattern)
+            if ("vibrate" in navigator) {
+                navigator.vibrate([500, 200, 500, 200, 500]);
+            }
+
+            // Auto-hang-up after 60 s if receiver doesn't answer
+            const autoRejectTimer = setTimeout(() => {
+                setIncomingCall(prev => {
+                    if (prev && prev.senderId === data.senderId) {
+                        stopRingtone();
+                        sock.emit("callRejected", { senderId: data.senderId, receiverId: currentUserRef.current._id });
+                        return null;
+                    }
+                    return prev;
+                });
+            }, 60000);
+
+            // Store timer ID so we can clear it on accept/reject
+            sock._callAutoRejectTimer = autoRejectTimer;
         });
 
-        newSocket.on("callRejected", () => {
+        sock.on("callRejected", () => {
             setCallActive(null);
             setIncomingCall(null);
             stopRingtone();
             toast.info("📵 Call declined", { position: "top-center", autoClose: 3000 });
         });
 
-        newSocket.on("callEnded", () => {
+        sock.on("callEnded", () => {
             stopRingtone();
             setIncomingCall(null);
         });
 
-        newSocket.on("duplicateLogin", () => {
-            toast.error("⚠️ Your account was logged in from another device. You have been signed out.", {
+        sock.on("duplicateLogin", () => {
+            toast.error("⚠️ Your account was logged in from another device.", {
                 position: "top-center", autoClose: 5000
             });
             setTimeout(() => {
@@ -116,8 +163,14 @@ export default function Chat() {
             }, 3000);
         });
 
+        // NOW connect (all listeners are already attached)
+        sock.connect();
+        setSocket(sock);
+
         return () => {
-            newSocket.disconnect();
+            if (sock._callAutoRejectTimer) clearTimeout(sock._callAutoRejectTimer);
+            stopRingtone();
+            sock.disconnect();
             setSocket(null);
         };
     }, [currentUser]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -235,6 +288,8 @@ export default function Chat() {
     const acceptCall = () => {
         if (!incomingCall) return;
         stopRingtone();
+        if (navigator.vibrate) navigator.vibrate(0); // stop vibration
+        if (socket?._callAutoRejectTimer) clearTimeout(socket._callAutoRejectTimer);
         const caller = contacts.find(c => c._id === incomingCall.senderId);
         if (caller) setCurrentChat(caller);
         setCallActive({
@@ -249,6 +304,8 @@ export default function Chat() {
     const rejectCall = () => {
         if (!incomingCall) return;
         stopRingtone();
+        if (navigator.vibrate) navigator.vibrate(0); // stop vibration
+        if (socket?._callAutoRejectTimer) clearTimeout(socket._callAutoRejectTimer);
         if (socket) socket.emit("callRejected", { senderId: incomingCall.senderId, receiverId: currentUser._id });
         setIncomingCall(null);
     };
