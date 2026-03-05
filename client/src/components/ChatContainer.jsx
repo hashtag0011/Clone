@@ -444,145 +444,149 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
         <div className="flex flex-col h-full w-full bg-transparent relative">
             <ToastContainer />
 
-            {/* Call Overlay */}
+            {/* ═══ Active Call Full-Screen Popup ═══ */}
             {callActive && (
-                <div className="absolute inset-0 z-[200] flex flex-col items-center justify-center call-overlay bg-black/80">
-                    {/* Animated background gradient */}
-                    <div className="absolute inset-0 bg-gradient-to-b from-[#1a1a2e] via-[#16213e] to-[#0f3460] opacity-95"></div>
+                <div
+                    className="call-overlay"
+                    style={{
+                        position: "fixed", inset: 0, zIndex: 99998,
+                        display: "flex", flexDirection: "column",
+                        alignItems: "center", justifyContent: "center",
+                        background: "rgba(0,0,0,0.92)",
+                    }}
+                >
+                    {/* Gradient background */}
+                    <div className="absolute inset-0 bg-gradient-to-b from-[#0f0c29] via-[#302b63] to-[#24243e] opacity-95 pointer-events-none" />
 
-                    {/* Remote Video Stream Preview */}
-                    <div className={`absolute inset-0 z-0 ${callActive.type === 'video' && callActive.answered ? 'opacity-100' : 'opacity-0'} transition-opacity duration-500`}>
-                        <video
-                            ref={remoteVideoRef}
-                            autoPlay
-                            playsInline
-                            className="w-full h-full object-cover rounded-3xl"
-                        />
+                    {/* Remote video (full-screen when video call answered) */}
+                    <div className={`absolute inset-0 z-0 transition-opacity duration-500 ${callActive.type === 'video' && callActive.answered ? 'opacity-100' : 'opacity-0'}`}>
+                        <video ref={remoteVideoRef} autoPlay playsInline className="w-full h-full object-cover" />
                     </div>
 
-                    <div className="relative z-[40] flex flex-col items-center gap-6 animate-fade-in w-full h-full justify-between pb-10 pt-20 pointer-events-none">
-                        {/* Avatar with pulse ring — always visible for audio, visible for video only when not yet connected */}
+                    {/* Main body */}
+                    <div className="relative z-10 flex flex-col items-center justify-between w-full h-full py-16 px-4 pointer-events-none">
+
+                        {/* ── Top: caller info ── */}
                         {(!callActive.answered || callActive.type === 'audio') ? (
-                            <div className="flex flex-col items-center pointer-events-auto">
-                                <div className="relative">
-                                    {/* Only pulse while waiting for answer */}
+                            <div className="flex flex-col items-center gap-5 pointer-events-auto">
+                                {/* Avatar + pulse rings */}
+                                <div className="relative flex items-center justify-center mt-4">
                                     {!callActive.answered && (
                                         <>
-                                            <div className="absolute inset-0 rounded-full bg-white/10 animate-ping" style={{ animationDuration: '2s' }}></div>
-                                            <div className="absolute -inset-3 rounded-full border-2 border-white/20 animate-pulse"></div>
+                                            <span className="absolute w-48 h-48 rounded-full border border-white/10 animate-ping" style={{ animationDuration: "2s" }} />
+                                            <span className="absolute w-40 h-40 rounded-full border border-white/15 animate-ping" style={{ animationDuration: "2s", animationDelay: "0.5s" }} />
                                         </>
                                     )}
                                     <img
                                         src={getAvatarUrl(currentChat)}
                                         alt=""
-                                        className={`w-28 h-28 rounded-full object-cover border-4 shadow-2xl relative z-10 bg-white/10 transition-all duration-500
-                                            ${callActive.answered ? 'border-green-400/60' : 'border-white/30'}`}
-                                        onError={(e) => { e.target.src = `https://ui-avatars.com/api/?name=${currentChat.username}&background=E8EDF2&color=2B3A4E&size=128`; }}
+                                        className={`w-32 h-32 rounded-full object-cover border-4 shadow-2xl relative z-10 transition-all duration-500 ${callActive.answered ? 'border-indigo-400/60' : 'border-white/20'}`}
+                                        onError={(e) => { e.target.src = `https://ui-avatars.com/api/?name=${currentChat.username}&background=4f46e5&color=fff&size=200`; }}
                                     />
                                     {callActive.type === 'video' && (
-                                        <div className="absolute -bottom-1 -right-1 w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center z-20 shadow-lg">
+                                        <div className="absolute -bottom-1 -right-1 w-9 h-9 bg-blue-500 rounded-full flex items-center justify-center z-20 shadow-lg border-2 border-black/30">
                                             <BsCameraVideo className="text-white text-sm" />
                                         </div>
                                     )}
                                 </div>
-                                <div className="text-center mt-6">
-                                    <h2 className="text-white text-2xl font-bold tracking-tight drop-shadow-md">{currentChat.username}</h2>
-                                    <div className="flex items-center justify-center gap-2 mt-2 drop-shadow-md">
+
+                                {/* Name + status */}
+                                <div className="text-center">
+                                    <h2 className="text-white text-3xl font-extrabold tracking-tight drop-shadow-lg">{currentChat.username}</h2>
+                                    <div className="flex items-center justify-center gap-2 mt-3">
                                         {callActive.answered ? (
                                             <>
-                                                {/* Green dot + timer */}
-                                                <span className="w-2 h-2 rounded-full bg-green-400"></span>
-                                                <p className="text-white/90 text-sm font-medium">
+                                                <span className="w-2 h-2 rounded-full bg-indigo-400" />
+                                                <p className="text-white/90 text-sm font-semibold">
                                                     {callActive.type === 'video' ? 'Video Call' : 'Audio Call'} &bull; {formatCallTimer(callTimer)}
                                                 </p>
                                             </>
                                         ) : (
                                             <>
-                                                {/* Pulsing blue dot + status text */}
-                                                <span className="w-2 h-2 rounded-full bg-blue-400 connecting-pulse"></span>
-                                                <p className="text-white/70 text-sm font-medium connecting-pulse">
+                                                <span className="w-2 h-2 rounded-full bg-white/50 connecting-pulse" />
+                                                <p className="text-white/60 text-sm font-medium connecting-pulse">
                                                     {callStatus || (callActive.direction === 'outgoing' ? 'Calling...' : 'Connecting...')}
                                                 </p>
                                             </>
                                         )}
                                     </div>
-                                    {/* Audio waveform — only when an audio call is live */}
+
+                                    {/* Audio waveform when in live audio call */}
                                     {callActive.answered && callActive.type === 'audio' && (
-                                        <div className="audio-wave mt-4 mx-auto">
-                                            <div className="audio-wave-bar"></div>
-                                            <div className="audio-wave-bar"></div>
-                                            <div className="audio-wave-bar"></div>
-                                            <div className="audio-wave-bar"></div>
-                                            <div className="audio-wave-bar"></div>
+                                        <div className="audio-wave mt-6 mx-auto">
+                                            <div className="audio-wave-bar" />
+                                            <div className="audio-wave-bar" />
+                                            <div className="audio-wave-bar" />
+                                            <div className="audio-wave-bar" />
+                                            <div className="audio-wave-bar" />
                                         </div>
                                     )}
                                 </div>
                             </div>
                         ) : (
-                            <div className="w-full flex justify-between px-8 absolute top-8 pointer-events-auto drop-shadow-md">
+                            /* Video call answered: show name + timer top-left */
+                            <div className="w-full flex items-start px-6 pt-2 pointer-events-auto">
                                 <div className="text-white">
-                                    <h2 className="text-xl font-bold">{currentChat.username}</h2>
-                                    <p className="text-white/80 text-xs font-medium">{formatCallTimer(callTimer)}</p>
+                                    <h2 className="text-xl font-bold drop-shadow-md">{currentChat.username}</h2>
+                                    <p className="text-white/70 text-xs font-medium">{formatCallTimer(callTimer)}</p>
                                 </div>
                             </div>
                         )}
 
-
-                        {/* Call Controls */}
-                        <div className="flex items-center gap-5 mt-auto mb-10 pointer-events-auto relative" style={{ zIndex: 9999 }}>
-                            <button
-                                onClick={() => setCallMuted(!callMuted)}
-                                className={`w-14 h-14 rounded-full flex items-center justify-center transition-all duration-300 shadow-lg ${callMuted
-                                    ? 'bg-white/30 text-white ring-2 ring-white/50'
-                                    : 'bg-white/20 text-white/90 hover:bg-white/30 backdrop-blur-md'
-                                    }`}
-                                title={callMuted ? "Unmute" : "Mute"}
-                            >
-                                {callMuted ? <BsMicMute className="text-xl" /> : <BsMic className="text-xl" />}
-                            </button>
-
-                            {callActive.type === 'video' && (
+                        {/* ── Bottom: call controls ── */}
+                        <div className="flex items-center gap-6 mb-4 pointer-events-auto">
+                            {/* Mute */}
+                            <div className="flex flex-col items-center gap-2">
                                 <button
-                                    onClick={() => setCallVideoOff(!callVideoOff)}
-                                    className={`w-14 h-14 rounded-full flex items-center justify-center transition-all duration-300 shadow-lg ${callVideoOff
-                                        ? 'bg-white/30 text-white ring-2 ring-white/50'
-                                        : 'bg-white/20 text-white/90 hover:bg-white/30 backdrop-blur-md'
-                                        }`}
-                                    title={callVideoOff ? "Turn on camera" : "Turn off camera"}
+                                    onClick={() => setCallMuted(!callMuted)}
+                                    className={`w-14 h-14 rounded-full flex items-center justify-center transition-all duration-200 shadow-lg text-white ${callMuted ? 'bg-white/30 ring-2 ring-white/50' : 'bg-white/15 hover:bg-white/25 backdrop-blur-md'}`}
                                 >
-                                    {callVideoOff ? <BsCameraVideoOff className="text-xl" /> : <BsCameraVideo className="text-xl" />}
+                                    {callMuted ? <BsMicMute className="text-xl" /> : <BsMic className="text-xl" />}
                                 </button>
-                            )}
+                                <span className="text-white/40 text-[11px]">{callMuted ? "Unmute" : "Mute"}</span>
+                            </div>
 
-                            <button
-                                onClick={endCall}
-                                className="w-16 h-16 rounded-full bg-gradient-to-br from-red-500 to-red-600 text-white flex items-center justify-center shadow-xl hover:scale-110 transition-transform duration-200 ring-4 ring-red-500/30"
-                                title="End Call"
-                            >
-                                <BsTelephoneX className="text-2xl" />
-                            </button>
+                            {/* End Call */}
+                            <div className="flex flex-col items-center gap-2">
+                                <button
+                                    onClick={endCall}
+                                    className="w-16 h-16 rounded-full bg-red-600 hover:bg-red-500 active:scale-90 text-white flex items-center justify-center shadow-2xl shadow-red-600/50 transition-all duration-200"
+                                >
+                                    <BsTelephoneX className="text-2xl" />
+                                </button>
+                                <span className="text-white/40 text-[11px]">End</span>
+                            </div>
+
+                            {/* Camera toggle (video calls only) */}
+                            {callActive.type === 'video' && (
+                                <div className="flex flex-col items-center gap-2">
+                                    <button
+                                        onClick={() => setCallVideoOff(!callVideoOff)}
+                                        className={`w-14 h-14 rounded-full flex items-center justify-center transition-all duration-200 shadow-lg text-white ${callVideoOff ? 'bg-white/30 ring-2 ring-white/50' : 'bg-white/15 hover:bg-white/25 backdrop-blur-md'}`}
+                                    >
+                                        {callVideoOff ? <BsCameraVideoOff className="text-xl" /> : <BsCameraVideo className="text-xl" />}
+                                    </button>
+                                    <span className="text-white/40 text-[11px]">{callVideoOff ? "Camera On" : "Camera Off"}</span>
+                                </div>
+                            )}
                         </div>
                     </div>
 
-                    {/* Local Video Stream Preview */}
+                    {/* Local Video PiP (fixed corner) */}
                     {callActive.type === 'video' && (
-                        <div className={`absolute shadow-2xl border-2 border-white/20 z-30 overflow-hidden transition-all duration-500
-                             ${callActive.answered ? 'bottom-8 right-6 w-36 h-52 rounded-xl bg-black/50 hover:scale-105 pointer-events-auto' : 'inset-0 w-full h-full rounded-3xl bg-transparent pointer-events-none'}`}>
-                            <video
-                                ref={myVideoRef}
-                                autoPlay
-                                muted
-                                className="w-full h-full object-cover mirror-mode"
-                            />
+                        <div
+                            className={`z-[100] overflow-hidden rounded-2xl border-2 border-white/20 shadow-2xl transition-all duration-500 ${callActive.answered ? 'w-32 h-48' : 'w-full h-full rounded-none border-0'}`}
+                            style={callActive.answered ? { position: "fixed", bottom: 100, right: 24 } : { position: "absolute", inset: 0 }}
+                        >
+                            <video ref={myVideoRef} autoPlay playsInline muted className="w-full h-full object-cover mirror-mode" />
                             {callActive.answered && (
-                                <div className="absolute bottom-2 left-2 text-[10px] bg-black/50 text-white px-2 py-0.5 rounded-full backdrop-blur-sm shadow-sm pointer-events-none">
-                                    You
-                                </div>
+                                <div className="absolute bottom-2 left-2 text-[10px] bg-black/60 text-white px-2 py-0.5 rounded-full">You</div>
                             )}
                         </div>
                     )}
                 </div>
             )}
+
 
             {/* Header */}
             <div className="flex items-center justify-between px-4 py-3 bg-white/40 backdrop-blur-md border-b border-white/30 transition-all duration-300">
