@@ -164,28 +164,35 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
         setCallStatus('');
     };
 
-    // Remote call ended / rejected handles
+    // callAccepted — register once per socket, use ref for peer
+    const connectionRef_accepted = useRef(null);
     useEffect(() => {
         if (!socket) return;
-        const handleCallEnded = () => {
-            if (callActive) {
-                toast.info("📵 Call ended", { position: "top-center", autoClose: 3000 });
-                endCallLocally();
+        const handleCallAccepted = (signalData) => {
+            setCallStatus('Connected');
+            setCallActive(prev => prev ? { ...prev, answered: true } : prev);
+            if (connectionRef.current && !connectionRef.current.destroyed) {
+                connectionRef.current.signal(signalData.signal);
             }
+            startTimer();
+        };
+        const handleCallEnded = () => {
+            endCallLocally();
+            toast.info("📵 Call ended", { position: "top-center", autoClose: 3000 });
         };
         const handleCallRejected = () => {
-            if (callActive) {
-                endCallLocally();
-                toast.info("📵 Call declined", { position: "top-center", autoClose: 3000 });
-            }
+            endCallLocally();
+            toast.info("📵 Call declined", { position: "top-center", autoClose: 3000 });
         };
+        socket.on("callAccepted", handleCallAccepted);
         socket.on("callEnded", handleCallEnded);
         socket.on("callRejected", handleCallRejected);
         return () => {
+            socket.off("callAccepted", handleCallAccepted);
             socket.off("callEnded", handleCallEnded);
             socket.off("callRejected", handleCallRejected);
         };
-    }, [socket, callActive]);
+    }, [socket]);
 
     // Call Setup & Media Stream
     useEffect(() => {
@@ -281,18 +288,12 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
                     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStream;
                 });
 
-                peer.on('error', err => { console.error('Peer error:', err); });
+                peer.on('error', err => {
+                    console.error('Peer error (outgoing):', err);
+                    if (!cancelled) endCallLocally();
+                });
 
-                if (socket) {
-                    socket.on('callAccepted', signalData => {
-                        if (cancelled) return;
-                        setCallStatus('Connected');
-                        setCallActive(prev => ({ ...prev, answered: true }));
-                        peer.signal(signalData.signal);
-                        startTimer();
-                    });
-                }
-
+                // callAccepted is now handled in the dedicated useEffect above
                 connectionRef.current = peer;
 
             } else if (callActive.direction === 'incoming') {
@@ -825,7 +826,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
                         <button onClick={() => setReplyTo(null)} className="text-chatx-text-secondary hover:text-chatx-text text-xl">&times;</button>
                     </div>
                 )}
-                <ChatInput handleSendMsg={handleSendMsg} onTyping={() => socket.current.emit("typing", { senderId: currentUser._id, receiverId: currentChat._id })} onStopTyping={() => socket.current.emit("stopTyping", { senderId: currentUser._id, receiverId: currentChat._id })} />
+                <ChatInput handleSendMsg={handleSendMsg} onTyping={() => socket && socket.emit("typing", { senderId: currentUser._id, receiverId: currentChat._id })} onStopTyping={() => socket && socket.emit("stopTyping", { senderId: currentUser._id, receiverId: currentChat._id })} />
             </div>
 
             {/* Context Menu */}
