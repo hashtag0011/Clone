@@ -340,7 +340,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
             const res = await axios.post(`${API}/api/messages`, msgData);
             setMessages((prev) => [...prev, res.data]);
             if (socket) {
-                socket.emit("sendMessage", { ...res.data, receiverId: currentChat._id, senderName: currentUser.username });
+                socket.emit("sendMessage", { ...res.data, senderId: currentUser._id, receiverId: currentChat._id, senderName: currentUser.username });
             }
             playSound("send");
             setReplyTo(null);

@@ -5,6 +5,38 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    --color-bg: #F0F4F8;
+    --color-surface: #FFFFFF;
+    --color-primary: #2B3A4E;
+    --color-accent: #3B82F6;
+    --color-text: #1E293B;
+    --color-text-secondary: #94A3B8;
+    --color-incoming: #E8EDF2;
+    --color-outgoing: #2B3A4E;
+    --color-separator: #E2E8F0;
+    --color-tab-bg: #E8EDF2;
+    --color-tab-active: #2B3A4E;
+    --color-input: #F1F5F9;
+  }
+
+  .dark {
+    --color-bg: #09090b;
+    /* Deep Dark Background */
+    --color-surface: #121214;
+    /* Elevated Light Dark */
+    --color-primary: #18181b;
+    /* Secondary Panels */
+    --color-accent: #2563eb;
+    --color-text: #f4f4f5;
+    --color-text-secondary: #a1a1aa;
+    --color-incoming: #18181b;
+    --color-outgoing: #2563eb;
+    --color-separator: #27272a;
+    --color-tab-bg: #09090b;
+    --color-tab-active: #27272a;
+    --color-input: #18181b;
+  }
 
   html,
   body {
@@ -14,8 +46,7 @@
     width: 100%;
     overflow: hidden;
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
-    /* Removed solid background, handled by app container */
-    color: #1E293B;
+    color: var(--color-text);
   }
 }
 
@@ -68,11 +99,6 @@
 .dark .glass-c {
   background: rgba(20, 25, 50, 0.6);
   border-color: rgba(255, 255, 255, 0.08);
-}
-
-/* Dark text fixes */
-.dark body {
-  color: #E2E8F0;
 }
 
 
@@ -311,6 +337,14 @@
   background: rgba(255, 255, 255, 0.85) !important;
   border: 1px solid rgba(255, 255, 255, 0.3) !important;
   padding: 12px 16px !important;
+  color: #1E293B !important;
+  /* Force legible text on light glass backgrounds */
+}
+
+.dark .Toastify__toast {
+  background: rgba(24, 24, 27, 0.85) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  color: #f4f4f5 !important;
 }
 
 .Toastify__toast-body {
@@ -320,7 +354,7 @@
 
 .Toastify__progress-bar {
   height: 3px !important;
-  background: linear-gradient(90deg, #23a6d5, #23d5ab) !important;
+  background: linear-gradient(90deg, #2563eb, #4facfe) !important;
 }
 
 /* Audio player in chat */
