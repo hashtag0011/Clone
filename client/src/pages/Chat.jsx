@@ -238,34 +238,73 @@ export default function Chat() {
             <div className="liquid-bg"></div>
             <ToastContainer position="top-right" autoClose={5000} theme="light" />
 
-            {/* Incoming Call Modal */}
+            {/* ───── Incoming Call Full-Screen Alert ───── */}
             {incomingCall && (
                 <div
-                    className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center animate-fade-in"
-                    style={{ zIndex: 9999 }}
+                    className="fixed inset-0 flex items-center justify-center animate-fade-in"
+                    style={{ zIndex: 99999, background: "rgba(0,0,0,0.85)" }}
                 >
-                    <div className="bg-white/10 backdrop-blur-xl border border-white/20 p-8 rounded-3xl shadow-2xl flex flex-col items-center gap-6 w-[320px]">
+                    {/* Blurred background avatar */}
+                    <div className="absolute inset-0 overflow-hidden pointer-events-none">
+                        <img
+                            src={contacts.find(c => c._id === incomingCall.senderId)?.avatarImage
+                                ? `${API}/images/${contacts.find(c => c._id === incomingCall.senderId).avatarImage}`
+                                : `https://ui-avatars.com/api/?name=${incomingCall.senderName}&background=2563eb&color=fff&size=200`}
+                            className="w-full h-full object-cover opacity-10 blur-3xl scale-110"
+                            alt=""
+                        />
+                    </div>
+
+                    <div className="relative flex flex-col items-center gap-6 px-8 py-10 w-[340px] max-w-full">
+                        {/* Pulsing avatar */}
                         <div className="relative">
-                            <div className="absolute inset-0 bg-white/20 rounded-full animate-ping"></div>
+                            <span className="absolute inset-0 rounded-full bg-blue-500/30 animate-ping" style={{ animationDuration: "1.5s" }} />
+                            <span className="absolute -inset-4 rounded-full border-2 border-white/15 animate-pulse" />
                             <img
                                 src={contacts.find(c => c._id === incomingCall.senderId)?.avatarImage
                                     ? `${API}/images/${contacts.find(c => c._id === incomingCall.senderId).avatarImage}`
-                                    : `https://ui-avatars.com/api/?name=${incomingCall.senderName}&background=random`}
+                                    : `https://ui-avatars.com/api/?name=${incomingCall.senderName}&background=2563eb&color=fff&size=200`}
                                 alt=""
-                                className="w-24 h-24 rounded-full object-cover border-4 border-white/20 shadow-xl relative z-10"
+                                className="w-28 h-28 rounded-full object-cover border-4 border-white/20 shadow-2xl relative z-10"
                             />
                         </div>
+
+                        {/* Caller info */}
                         <div className="text-center">
-                            <h2 className="text-white text-2xl font-bold">{incomingCall.senderName}</h2>
-                            <p className="text-white/70">Incoming {incomingCall.callType} call...</p>
+                            <p className="text-white/60 text-sm font-medium tracking-widest uppercase mb-1">Incoming {incomingCall.callType} call</p>
+                            <h2 className="text-white text-3xl font-extrabold tracking-tight drop-shadow-lg">{incomingCall.senderName}</h2>
+                            <div className={`inline-flex items-center gap-1.5 mt-2 px-3 py-1 rounded-full text-xs font-semibold ${incomingCall.callType === "video"
+                                    ? "bg-blue-500/20 text-blue-300 border border-blue-500/30"
+                                    : "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                                }`}>
+                                {incomingCall.callType === "video" ? <BsCameraVideo /> : <BsTelephone />}
+                                {incomingCall.callType === "video" ? "Video Call" : "Audio Call"}
+                            </div>
                         </div>
-                        <div className="flex items-center gap-6 mt-4">
-                            <button onClick={rejectCall} className="w-14 h-14 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow-lg transition-transform hover:scale-110">
-                                <BsTelephoneX className="text-xl" />
-                            </button>
-                            <button onClick={acceptCall} className="w-14 h-14 rounded-full bg-green-500 hover:bg-green-600 text-white flex items-center justify-center shadow-lg transition-transform hover:scale-110 animate-bounce">
-                                {incomingCall.callType === 'video' ? <BsCameraVideo className="text-xl" /> : <BsTelephone className="text-xl" />}
-                            </button>
+
+                        {/* Action buttons */}
+                        <div className="flex items-center gap-10 mt-4">
+                            {/* Decline */}
+                            <div className="flex flex-col items-center gap-2">
+                                <button
+                                    onClick={rejectCall}
+                                    className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-400 active:scale-95 text-white flex items-center justify-center shadow-xl shadow-red-500/40 transition-all"
+                                >
+                                    <BsTelephoneX className="text-2xl" />
+                                </button>
+                                <span className="text-white/50 text-xs">Decline</span>
+                            </div>
+
+                            {/* Accept */}
+                            <div className="flex flex-col items-center gap-2">
+                                <button
+                                    onClick={acceptCall}
+                                    className="w-16 h-16 rounded-full bg-green-500 hover:bg-green-400 active:scale-95 text-white flex items-center justify-center shadow-xl shadow-green-500/40 transition-all animate-bounce"
+                                >
+                                    {incomingCall.callType === "video" ? <BsCameraVideo className="text-2xl" /> : <BsTelephone className="text-2xl" />}
+                                </button>
+                                <span className="text-white/50 text-xs">Accept</span>
+                            </div>
                         </div>
                     </div>
                 </div>

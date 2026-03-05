@@ -3,19 +3,22 @@ import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { Link, useNavigate } from "react-router-dom";
 import { ToastContainer, toast } from "react-toastify";
-import { BsWhatsapp } from "react-icons/bs";
+import { BsWhatsapp, BsEye, BsEyeSlash } from "react-icons/bs";
 import "react-toastify/dist/ReactToastify.css";
 
 const Login = () => {
     const navigate = useNavigate();
     const [values, setValues] = useState({ email: "", password: "" });
+    const [showPass, setShowPass] = useState(false);
+    const [loading, setLoading] = useState(false);
 
     const toastOptions = {
-        position: "bottom-right",
-        autoClose: 5000,
+        position: "top-center",
+        autoClose: 4000,
         pauseOnHover: true,
         draggable: true,
-        theme: "dark",
+        theme: "colored",
+        style: { fontWeight: 600, fontSize: "14px" },
     };
 
     useEffect(() => {
@@ -30,11 +33,12 @@ const Login = () => {
 
     const handleValidation = () => {
         const { password, email } = values;
-        if (password === "") {
-            toast.error("Email and Password are required.", toastOptions);
+        if (!email.trim()) {
+            toast.error("⚠️ Please enter your email address.", toastOptions);
             return false;
-        } else if (email === "") {
-            toast.error("Email and Password are required.", toastOptions);
+        }
+        if (!password) {
+            toast.error("⚠️ Please enter your password.", toastOptions);
             return false;
         }
         return true;
@@ -42,77 +46,108 @@ const Login = () => {
 
     const handleSubmit = async (event) => {
         event.preventDefault();
-        if (handleValidation()) {
-            const { password, email } = values;
-            try {
-                const { data } = await axios.post(`${import.meta.env.VITE_API_URL || "http://localhost:5000"}/api/auth/login`, {
-                    email: email.trim(),
-                    password,
-                });
-                localStorage.setItem("chat-app-user", JSON.stringify(data));
-                navigate("/");
-            } catch (err) {
-                toast.error(err.response?.data || "Error", toastOptions);
-            }
+        if (!handleValidation()) return;
+        setLoading(true);
+        const { password, email } = values;
+        try {
+            const { data } = await axios.post(`${import.meta.env.VITE_API_URL || "http://localhost:5000"}/api/auth/login`, {
+                email: email.trim().toLowerCase(),
+                password,
+            });
+            localStorage.setItem("chat-app-user", JSON.stringify(data));
+            navigate("/");
+        } catch (err) {
+            const msg = err.response?.data?.message || err.response?.data || "Login failed. Check your credentials.";
+            toast.error(`❌ ${msg}`, toastOptions);
+        } finally {
+            setLoading(false);
         }
     };
 
     return (
-        <div className="h-screen w-screen relative overflow-hidden flex items-center justify-center p-4 font-sans bg-transparent">
-            {/* Liquid Background restored */}
-            <div className="liquid-bg z-[-1] absolute inset-0">
-                <div className="liquid-blob blob-1"></div>
-                <div className="liquid-blob blob-2"></div>
-                <div className="liquid-blob blob-3"></div>
-            </div>
+        <div className="h-screen w-screen relative overflow-hidden flex items-center justify-center p-4 font-sans">
+            {/* Animated liquid background */}
+            <div className="liquid-bg absolute inset-0 z-[-1]" />
 
-            <div className="relative z-10 w-full max-w-md bg-white/10 backdrop-blur-3xl border border-white/20 rounded-[2rem] p-10 shadow-[0_8px_32px_0_rgba(31,38,135,0.37)] animate-fade-in">
-                <div className="flex flex-col items-center mb-10">
-                    <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/30 mb-6 relative group">
-                        <div className="absolute inset-0 bg-white opacity-0 group-hover:opacity-20 transition-opacity rounded-2xl"></div>
-                        <BsWhatsapp className="text-3xl text-white" />
+            <div className="relative z-10 w-full max-w-[420px] animate-fade-in">
+                {/* Glass card */}
+                <div className="bg-[#0f172a]/80 backdrop-blur-2xl border border-white/10 rounded-[2rem] p-8 shadow-[0_20px_60px_rgba(0,0,0,0.5)]">
+
+                    {/* Logo */}
+                    <div className="flex flex-col items-center mb-8">
+                        <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/40 mb-5">
+                            <BsWhatsapp className="text-3xl text-white" />
+                        </div>
+                        <h1 className="text-3xl font-extrabold text-white tracking-tight mb-1">Welcome Back</h1>
+                        <p className="text-slate-400 text-sm">Sign in to continue to Chatx</p>
                     </div>
-                    <h1 className="text-3xl font-extrabold text-white tracking-tight mb-2">Welcome Back</h1>
-                    <p className="text-blue-200/60 text-sm">Sign in to continue to Chatx</p>
-                </div>
 
-                <form className="flex flex-col gap-5 w-full" onSubmit={handleSubmit}>
-                    <div className="space-y-4">
-                        <div className="relative">
+                    <form className="flex flex-col gap-4 w-full" onSubmit={handleSubmit}>
+
+                        {/* Email */}
+                        <div className="flex flex-col gap-1.5">
+                            <label className="text-slate-300 text-xs font-semibold uppercase tracking-wide px-1">Email Address</label>
                             <input
                                 type="email"
-                                placeholder="Email Address"
+                                placeholder="you@example.com"
                                 name="email"
+                                autoComplete="email"
                                 onChange={handleChange}
-                                className="w-full bg-white/10 backdrop-blur-md border border-white/20 rounded-xl px-4 py-3.5 text-white placeholder-white/50 focus:outline-none focus:border-white/50 focus:bg-white/20 transition-all text-sm shadow-sm"
+                                className="w-full bg-white/5 border-2 border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500/70 focus:bg-white/10 transition-all text-sm caret-blue-400"
+                                style={{ WebkitTextFillColor: "white" }}
                             />
                         </div>
-                        <div className="relative">
-                            <input
-                                type="password"
-                                placeholder="Password"
-                                name="password"
-                                onChange={handleChange}
-                                className="w-full bg-white/10 backdrop-blur-md border border-white/20 rounded-xl px-4 py-3.5 text-white placeholder-white/50 focus:outline-none focus:border-white/50 focus:bg-white/20 transition-all text-sm shadow-sm"
-                            />
+
+                        {/* Password */}
+                        <div className="flex flex-col gap-1.5">
+                            <label className="text-slate-300 text-xs font-semibold uppercase tracking-wide px-1">Password</label>
+                            <div className="relative">
+                                <input
+                                    type={showPass ? "text" : "password"}
+                                    placeholder="Your password"
+                                    name="password"
+                                    autoComplete="current-password"
+                                    onChange={handleChange}
+                                    className="w-full bg-white/5 border-2 border-white/10 rounded-xl px-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-blue-500/70 focus:bg-white/10 transition-all text-sm pr-12 caret-blue-400"
+                                    style={{ WebkitTextFillColor: "white" }}
+                                />
+                                <button
+                                    type="button"
+                                    onClick={() => setShowPass(!showPass)}
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition-colors p-1"
+                                >
+                                    {showPass ? <BsEyeSlash className="text-lg" /> : <BsEye className="text-lg" />}
+                                </button>
+                            </div>
                         </div>
-                    </div>
 
-                    <button
-                        type="submit"
-                        className="w-full mt-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold py-3.5 rounded-xl hover:shadow-lg hover:shadow-blue-500/30 active:scale-[0.98] transition-all"
-                    >
-                        Sign In
-                    </button>
+                        {/* Submit */}
+                        <button
+                            type="submit"
+                            disabled={loading}
+                            className="w-full mt-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold py-3.5 rounded-xl hover:from-blue-500 hover:to-indigo-500 hover:shadow-xl hover:shadow-blue-600/30 active:scale-[0.98] transition-all disabled:opacity-60 disabled:cursor-not-allowed text-sm tracking-wide"
+                        >
+                            {loading ? (
+                                <span className="flex items-center justify-center gap-2">
+                                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                                    </svg>
+                                    Signing in...
+                                </span>
+                            ) : "Sign In"}
+                        </button>
 
-                    <p className="text-center text-white/50 text-sm mt-6">
-                        Don't have an account?{" "}
-                        <Link to="/register" className="text-blue-400 hover:text-blue-300 font-semibold transition-colors">
-                            Create one
-                        </Link>
-                    </p>
-                </form>
+                        <p className="text-center text-slate-400 text-sm mt-2">
+                            Don't have an account?{" "}
+                            <Link to="/register" className="text-blue-400 hover:text-blue-300 font-semibold transition-colors">
+                                Create one
+                            </Link>
+                        </p>
+                    </form>
+                </div>
             </div>
+
             <ToastContainer />
         </div>
     );

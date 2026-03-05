@@ -293,18 +293,20 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
                 const peer = new Peer({ initiator: false, trickle: false, stream });
 
                 peer.on('signal', data => {
-                    socket.current.emit('callAccepted', {
-                        signal: data,
-                        receiverId: currentUser._id,
-                        senderId: callActive.callerId
-                    });
+                    if (socket) {
+                        socket.emit('callAccepted', {
+                            signal: data,
+                            receiverId: currentUser._id,
+                            senderId: callActive.callerId
+                        });
+                    }
                 });
 
                 peer.on('stream', remoteStream => {
                     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStream;
                 });
 
-                peer.on('error', err => { console.error('Peer error:', err); });
+                peer.on('error', err => { console.error('Peer error (receiver):', err); endCallLocally(); });
 
                 peer.signal(callActive.signal);
                 connectionRef.current = peer;
@@ -683,13 +685,13 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
                             ) : (
                                 <div className={`flex ${isMine ? "justify-end" : "justify-start"} mb-1 animate-msg-in`}>
                                     <div
-                                        className={`relative max-w-[70%] px-4 py-2.5 shadow-sm ${msg.fileType === "audio"
-                                            ? isMine
-                                                ? "bg-white/20 text-white rounded-[2rem] rounded-br-md backdrop-blur-xl border border-white/30 shadow-[0_4px_30px_rgba(0,0,0,0.1)]"
-                                                : "bg-white/10 text-chatx-text rounded-[2rem] rounded-bl-md backdrop-blur-xl border border-white/20 shadow-[0_4px_30px_rgba(0,0,0,0.05)]"
-                                            : isMine
-                                                ? "bg-chatx-primary/95 text-white rounded-2xl rounded-br-md backdrop-blur-sm"
-                                                : "bg-white/50 text-chatx-text rounded-2xl rounded-bl-md backdrop-blur-md border border-white/40"
+                                        className={`relative max-w-[70%] px-4 py-2.5 shadow-md ${msg.fileType === "audio"
+                                                ? isMine
+                                                    ? "bg-[#1d4ed8] text-white rounded-[2rem] rounded-br-sm"
+                                                    : "bg-[#e5e7eb] dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 rounded-[2rem] rounded-bl-sm"
+                                                : isMine
+                                                    ? "bg-[#2563eb] text-white rounded-2xl rounded-br-sm"
+                                                    : "bg-white dark:bg-[#1f2937] text-gray-900 dark:text-gray-100 rounded-2xl rounded-bl-sm border border-gray-100 dark:border-gray-700"
                                             }`}
                                         onContextMenu={(e) => { e.preventDefault(); if (!msg.deletedForEveryone) setContextMenu({ x: e.clientX, y: e.clientY, msg }); }}
                                     >
