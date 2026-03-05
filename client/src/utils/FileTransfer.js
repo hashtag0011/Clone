@@ -4,7 +4,7 @@ import axios from "axios";
 // This self-contained module handles all file transfer logic.
 // It can be expanded to support chunked uploads in the future.
 
-const API = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:5000`;
+const API = import.meta.env.VITE_API_URL || "";
 
 class FileTransfer {
     /**

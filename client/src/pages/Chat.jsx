@@ -11,7 +11,7 @@ import 'react-toastify/dist/ReactToastify.css';
 import playSound, { playRingtone, stopRingtone } from "../utils/sounds";
 import { BsTelephone, BsCameraVideo, BsTelephoneX, BsMicFill } from "react-icons/bs";
 
-const API = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:5000`;
+const API = import.meta.env.VITE_API_URL || "";
 
 export default function Chat() {
     const navigate = useNavigate();

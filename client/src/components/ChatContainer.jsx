@@ -8,7 +8,7 @@ import 'react-toastify/dist/ReactToastify.css';
 import playSound from "../utils/sounds";
 import Peer from "simple-peer";
 
-const API = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:5000`;
+const API = import.meta.env.VITE_API_URL || "";
 
 export default function ChatContainer({ currentChat, currentUser, socket, onlineUsers, typingUsers, refreshConversations, onBack, callActiveProp: callActive, setCallActiveProp: setCallActive }) {
     const [messages, setMessages] = useState([]);
@@ -172,10 +172,14 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
     useEffect(() => {
         if (!socket) return;
         const handleCallAccepted = (signalData) => {
+            console.log("☎️ Caller received 'callAccepted' from receiver via socket. Signal data:", !!signalData?.signal);
             setCallStatus('Connected');
             setCallActive(prev => prev ? { ...prev, answered: true } : prev);
             if (connectionRef.current && !connectionRef.current.destroyed) {
+                console.log("☎️ Caller applying answer signal to connectionRef...");
                 connectionRef.current.signal(signalData.signal);
+            } else {
+                console.error("☎️ Caller received 'callAccepted' but connectionRef is missing or destroyed!");
             }
             startTimer();
         };
@@ -329,6 +333,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
                 });
 
                 peer.on('signal', data => {
+                    console.log("☎️ Receiver generated ANSWER signal, emitting 'callAccepted' back to caller", !!data);
                     if (socket) {
                         socket.emit('callAccepted', {
                             signal: data,
@@ -339,11 +344,13 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
                 });
 
                 peer.on('stream', remoteStream => {
+                    console.log("☎️ Receiver got remote stream!");
                     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStream;
                 });
 
                 peer.on('error', err => { console.error('Peer error (receiver):', err); endCallLocally(); });
 
+                console.log("☎️ Receiver applying initially received Offer signal...");
                 peer.signal(callActive.signal);
                 connectionRef.current = peer;
 
