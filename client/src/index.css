@@ -94,21 +94,21 @@
   transition: background 0.6s ease;
 }
 
-/* Dark mode liquid background */
+/* Dark mode liquid background — deep indigo/zinc */
 .dark .liquid-bg {
-  background: radial-gradient(circle at 50% 50%, #0f0c29 0%, #302b63 33%, #24243e 66%, #1a1a2e 100%);
-  opacity: 0.85;
+  background: radial-gradient(ellipse at 30% 40%, #1e1b4b 0%, #0e0e10 50%, #111827 100%);
+  opacity: 0.98;
 }
 
 /* Dark mode glass panels */
 .dark .glass-panel {
-  background: rgba(15, 20, 40, 0.75);
-  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(24, 24, 27, 0.92);
+  border-color: rgba(255, 255, 255, 0.06);
 }
 
 .dark .glass-c {
-  background: rgba(20, 25, 50, 0.6);
-  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(39, 39, 42, 0.8);
+  border-color: rgba(255, 255, 255, 0.06);
 }
 
 
