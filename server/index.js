@@ -145,14 +145,19 @@ io.on("connection", (socket) => {
 
     // Call signaling events
     socket.on("callUser", ({ senderId, receiverId, callType, senderName, signalData }) => {
+        console.log(`[callUser] EVENT FROM ${senderId} TO ${receiverId} (${callType})`);
         const user = getUser(receiverId);
         if (user) {
+            console.log(`[callUser] Receiver found, emitting incomingCall to socket ${user.socketId}`);
             io.to(user.socketId).emit("incomingCall", {
                 senderId,
                 senderName,
                 callType,
                 signal: signalData,
             });
+        } else {
+            console.error(`[callUser] Receiver ${receiverId} NOT FOUND IN USERS ARRAY!`);
+            console.log("Current active users:", JSON.stringify(users));
         }
     });
 

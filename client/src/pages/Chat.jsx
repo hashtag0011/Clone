@@ -11,7 +11,7 @@ import 'react-toastify/dist/ReactToastify.css';
 import playSound, { playRingtone, stopRingtone } from "../utils/sounds";
 import { BsTelephone, BsCameraVideo, BsTelephoneX, BsMicFill } from "react-icons/bs";
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:5000";
+const API = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:5000`;
 
 export default function Chat() {
     const navigate = useNavigate();
@@ -28,8 +28,10 @@ export default function Chat() {
 
     // Use refs to keep latest state accessible inside socket callbacks without re-registering
     const callActiveRef = useRef(callActive);
+    const incomingCallRef = useRef(incomingCall);
     const currentUserRef = useRef(currentUser);
     useEffect(() => { callActiveRef.current = callActive; }, [callActive]);
+    useEffect(() => { incomingCallRef.current = incomingCall; }, [incomingCall]);
     useEffect(() => { currentUserRef.current = currentUser; }, [currentUser]);
 
     // ── Load current user ──────────────────────────────────────────────────────
@@ -90,6 +92,8 @@ export default function Chat() {
         sock.on("incomingCall", (data) => {
             console.log("📞 incomingCall received:", data);
 
+            if (sock._callAutoRejectTimer) clearTimeout(sock._callAutoRejectTimer);
+
             if (callActiveRef.current) {
                 sock.emit("callRejected", { senderId: data.senderId, receiverId: currentUserRef.current._id });
                 return;
@@ -142,15 +146,29 @@ export default function Chat() {
         });
 
         sock.on("callRejected", () => {
+            if (sock._callAutoRejectTimer) clearTimeout(sock._callAutoRejectTimer);
+            // Only show "declined" toast if WE were the caller (had outgoing call)
+            const wasOutgoing = callActiveRef.current?.direction === 'outgoing';
             setCallActive(null);
             setIncomingCall(null);
             stopRingtone();
-            toast.info("📵 Call declined", { position: "top-center", autoClose: 3000 });
+            if (wasOutgoing) {
+                toast.info("📵 Call declined", { position: "top-center", autoClose: 3000 });
+            }
         });
 
         sock.on("callEnded", () => {
+            if (sock._callAutoRejectTimer) clearTimeout(sock._callAutoRejectTimer);
             stopRingtone();
+            const hadIncoming = incomingCallRef.current !== null;
+            const hadActiveCall = callActiveRef.current !== null;
+            // Clear popup and call overlay
             setIncomingCall(null);
+            setCallActive(null);
+            // Show toast: if we had an active call, inform user it ended
+            if (hadActiveCall && !hadIncoming) {
+                toast.info("\ud83d\udcf5 Call ended", { position: "top-center", autoClose: 3000 });
+            }
         });
 
         sock.on("duplicateLogin", () => {
@@ -285,13 +303,31 @@ export default function Chat() {
         navigate("/login");
     };
 
-    const acceptCall = () => {
+    const acceptCall = async () => {
         if (!incomingCall) return;
         stopRingtone();
-        if (navigator.vibrate) navigator.vibrate(0); // stop vibration
+        if (navigator.vibrate) navigator.vibrate(0);
         if (socket?._callAutoRejectTimer) clearTimeout(socket._callAutoRejectTimer);
-        const caller = contacts.find(c => c._id === incomingCall.senderId);
-        if (caller) setCurrentChat(caller);
+
+        // Try to find the caller in already-loaded contacts
+        let caller = contacts.find(c => c._id === incomingCall.senderId);
+
+        // If not found (e.g. contacts not loaded yet), fetch from API
+        if (!caller) {
+            try {
+                const res = await axios.get(`${API}/api/users/${incomingCall.senderId}`);
+                caller = res.data;
+                setContacts(prev => prev.some(c => c._id === caller._id) ? prev : [...prev, caller]);
+            } catch (err) {
+                console.error("Failed to fetch caller data:", err);
+                // Build a minimal placeholder so the call can still proceed
+                caller = { _id: incomingCall.senderId, username: incomingCall.senderName };
+            }
+        }
+
+        // Always set current chat to caller so ChatContainer mounts and handles media
+        setCurrentChat(caller);
+
         setCallActive({
             type: incomingCall.callType,
             direction: 'incoming',

@@ -8,7 +8,7 @@ import 'react-toastify/dist/ReactToastify.css';
 import playSound from "../utils/sounds";
 import Peer from "simple-peer";
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:5000";
+const API = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:5000`;
 
 export default function ChatContainer({ currentChat, currentUser, socket, onlineUsers, typingUsers, refreshConversations, onBack, callActiveProp: callActive, setCallActiveProp: setCallActive }) {
     const [messages, setMessages] = useState([]);
@@ -162,10 +162,13 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
         setCallMuted(false);
         setCallVideoOff(false);
         setCallStatus('');
+
+        // Ensure parent component (Chat.jsx) clears the global call state too!
+        if (onEndCall) onEndCall();
     };
 
-    // callAccepted — register once per socket, use ref for peer
-    const connectionRef_accepted = useRef(null);
+    // callAccepted — only handle here (caller side).
+    // callEnded and callRejected are handled globally in Chat.jsx to avoid duplicate handlers.
     useEffect(() => {
         if (!socket) return;
         const handleCallAccepted = (signalData) => {
@@ -177,26 +180,27 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
             startTimer();
         };
         const handleCallEnded = () => {
+            // Only clean up local media/peer — the callActive state reset is handled by Chat.jsx
             endCallLocally();
-            toast.info("📵 Call ended", { position: "top-center", autoClose: 3000 });
-        };
-        const handleCallRejected = () => {
-            endCallLocally();
-            toast.info("📵 Call declined", { position: "top-center", autoClose: 3000 });
         };
         socket.on("callAccepted", handleCallAccepted);
         socket.on("callEnded", handleCallEnded);
-        socket.on("callRejected", handleCallRejected);
         return () => {
             socket.off("callAccepted", handleCallAccepted);
             socket.off("callEnded", handleCallEnded);
-            socket.off("callRejected", handleCallRejected);
         };
     }, [socket]);
 
     // Call Setup & Media Stream
     useEffect(() => {
-        if (!callActive) return;
+        if (!callActive) {
+            if (localStreamRef.current || connectionRef.current) {
+                // If callActive was set to null externally (by Chat.jsx handling callEnded/callRejected),
+                // we MUST tear down local media resources and connections so subsequent calls work.
+                endCallLocally();
+            }
+            return;
+        }
 
         // Auto hang-up if not answered after 60 seconds (outgoing only)
         let ringTimeout;
@@ -270,9 +274,20 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
 
             if (callActive.direction === 'outgoing') {
                 setCallStatus(isOnline ? 'Ringing...' : 'Calling...');
-                const peer = new Peer({ initiator: true, trickle: false, stream });
+                const peer = new Peer({
+                    initiator: true,
+                    trickle: false,
+                    stream,
+                    config: {
+                        iceServers: [
+                            { urls: 'stun:stun.l.google.com:19302' },
+                            { urls: 'stun:global.stun.twilio.com:3478' }
+                        ]
+                    }
+                });
 
                 peer.on('signal', data => {
+                    console.log("Peer generated signal, sending callUser event. Signal data available:", !!data);
                     if (socket) {
                         socket.emit('callUser', {
                             senderId: currentUser._id,
@@ -281,6 +296,9 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
                             senderName: currentUser.username,
                             signalData: data
                         });
+                        console.log("callUser event emitted successfully via socket!");
+                    } else {
+                        console.error("Socket not available when trying to emit callUser!");
                     }
                 });
 
@@ -298,7 +316,17 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
 
             } else if (callActive.direction === 'incoming') {
                 setCallStatus('Connecting...');
-                const peer = new Peer({ initiator: false, trickle: false, stream });
+                const peer = new Peer({
+                    initiator: false,
+                    trickle: false,
+                    stream,
+                    config: {
+                        iceServers: [
+                            { urls: 'stun:stun.l.google.com:19302' },
+                            { urls: 'stun:global.stun.twilio.com:3478' }
+                        ]
+                    }
+                });
 
                 peer.on('signal', data => {
                     if (socket) {
