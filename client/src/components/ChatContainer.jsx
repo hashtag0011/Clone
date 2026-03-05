@@ -31,6 +31,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
     const remoteVideoRef = useRef(null);
     const localStreamRef = useRef(null);
     const connectionRef = useRef(null);
+    const pendingSignalsRef = useRef([]);
 
     const isOnline = onlineUsers.some((u) => u.userId === currentChat._id);
     const isTyping = typingUsers.includes(currentChat._id);
@@ -187,13 +188,25 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
             // Only clean up local media/peer — the callActive state reset is handled by Chat.jsx
             endCallLocally();
         };
+        const handleCallSignal = ({ signal }) => {
+            if (connectionRef.current && !connectionRef.current.destroyed) {
+                console.log("☎️ Incoming trickle signal applied to connectionRef");
+                connectionRef.current.signal(signal);
+            } else {
+                console.log("☎️ ConnectionRef not ready. Buffering incoming trickle signal");
+                pendingSignalsRef.current.push(signal);
+            }
+        };
+
         socket.on("callAccepted", handleCallAccepted);
         socket.on("callEnded", handleCallEnded);
+        socket.on("callSignal", handleCallSignal);
         return () => {
             socket.off("callAccepted", handleCallAccepted);
             socket.off("callEnded", handleCallEnded);
+            socket.off("callSignal", handleCallSignal);
         };
-    }, [socket]);
+    }, [socket, callActive?.answered]);
 
     // Call Setup & Media Stream
     useEffect(() => {
@@ -203,6 +216,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
                 // we MUST tear down local media resources and connections so subsequent calls work.
                 endCallLocally();
             }
+            pendingSignalsRef.current = [];
             return;
         }
 
@@ -278,9 +292,10 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
 
             if (callActive.direction === 'outgoing') {
                 setCallStatus(isOnline ? 'Ringing...' : 'Calling...');
+                let hasEmittedCallUser = false;
                 const peer = new Peer({
                     initiator: true,
-                    trickle: false,
+                    trickle: true,
                     stream,
                     config: {
                         iceServers: [
@@ -291,18 +306,25 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
                 });
 
                 peer.on('signal', data => {
-                    console.log("Peer generated signal, sending callUser event. Signal data available:", !!data);
-                    if (socket) {
-                        socket.emit('callUser', {
+                    if (data.type === 'offer' || !hasEmittedCallUser) {
+                        hasEmittedCallUser = true;
+                        console.log("Peer generated MAIN OFFER signal, sending callUser event:", !!data);
+                        if (socket) {
+                            socket.emit('callUser', {
+                                senderId: currentUser._id,
+                                receiverId: currentChat._id,
+                                callType: callActive.type,
+                                senderName: currentUser.username,
+                                signalData: data
+                            });
+                        }
+                    } else if (socket) {
+                        console.log("Peer generated TRICKLE ICE CANDIDATE, sending callSignal event:", !!data);
+                        socket.emit('callSignal', {
                             senderId: currentUser._id,
                             receiverId: currentChat._id,
-                            callType: callActive.type,
-                            senderName: currentUser.username,
-                            signalData: data
+                            signal: data
                         });
-                        console.log("callUser event emitted successfully via socket!");
-                    } else {
-                        console.error("Socket not available when trying to emit callUser!");
                     }
                 });
 
@@ -317,12 +339,15 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
 
                 // callAccepted is now handled in the dedicated useEffect above
                 connectionRef.current = peer;
+                pendingSignalsRef.current.forEach(sig => peer.signal(sig));
+                pendingSignalsRef.current = [];
 
             } else if (callActive.direction === 'incoming') {
                 setCallStatus('Connecting...');
+                let hasEmittedCallAccepted = false;
                 const peer = new Peer({
                     initiator: false,
-                    trickle: false,
+                    trickle: true,
                     stream,
                     config: {
                         iceServers: [
@@ -333,12 +358,22 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
                 });
 
                 peer.on('signal', data => {
-                    console.log("☎️ Receiver generated ANSWER signal, emitting 'callAccepted' back to caller", !!data);
-                    if (socket) {
-                        socket.emit('callAccepted', {
-                            signal: data,
-                            receiverId: currentUser._id,
-                            senderId: callActive.callerId
+                    if (data.type === 'answer' || !hasEmittedCallAccepted) {
+                        hasEmittedCallAccepted = true;
+                        console.log("☎️ Receiver generated MAIN ANSWER signal, emitting 'callAccepted'", !!data);
+                        if (socket) {
+                            socket.emit('callAccepted', {
+                                signal: data,
+                                receiverId: currentUser._id,
+                                senderId: callActive.callerId
+                            });
+                        }
+                    } else if (socket) {
+                        console.log("☎️ Receiver generated TRICKLE ICE CANDIDATE, sending callSignal event", !!data);
+                        socket.emit('callSignal', {
+                            senderId: currentUser._id,
+                            receiverId: callActive.callerId,
+                            signal: data
                         });
                     }
                 });
@@ -353,6 +388,10 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
                 console.log("☎️ Receiver applying initially received Offer signal...");
                 peer.signal(callActive.signal);
                 connectionRef.current = peer;
+
+                // Process any trickled candidates received before peer was ready
+                pendingSignalsRef.current.forEach(sig => peer.signal(sig));
+                pendingSignalsRef.current = [];
 
                 setCallStatus('Connected');
                 setCallActive(prev => ({ ...prev, answered: true }));
@@ -369,6 +408,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
 
 
     const handleSendMsg = async ({ text, fileUrl, fileType }) => {
+        console.log("handleSendMsg called with:", { text, fileUrl, fileType });
         let convId = conversation?._id;
         if (!convId) {
             try {
@@ -409,11 +449,17 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
     };
 
     const initiateCall = async (type) => {
+        console.log("initiateCall triggered:", type);
         const text = type === "video" ? "🎥 Video Call" : "📞 Audio Call";
-        await handleSendMsg({ text, fileUrl: "", fileType: "call" });
-        // Setting callActive triggers the useEffect which creates the Peer.
-        // The Peer's 'signal' event will emit 'callUser' with the real SDP data.
-        setCallActive({ type, direction: 'outgoing' });
+        try {
+            await handleSendMsg({ text, fileUrl: "", fileType: "call" });
+            console.log("handleSendMsg finished successfully, setting callActive:", { type, direction: 'outgoing' });
+            // Setting callActive triggers the useEffect which creates the Peer.
+            // The Peer's 'signal' event will emit 'callUser' with the real SDP data.
+            setCallActive({ type, direction: 'outgoing' });
+        } catch (err) {
+            console.error("Error in initiateCall:", err);
+        }
     };
 
     const endCall = () => {
