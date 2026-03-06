@@ -135,7 +135,7 @@ export default function Sidebar({
     if (!currentUser) return null;
 
     return (
-        <div className="w-[380px] min-w-[340px] flex flex-col h-full bg-white/40 backdrop-blur-md border-r border-white/30 z-20">
+        <div className={`w-full lg:w-[380px] lg:min-w-[340px] flex-col h-full bg-white/40 backdrop-blur-md border-r border-white/30 z-20 ${currentChat ? 'hidden lg:flex' : 'flex'}`}>
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-5">
                 <h1 className="text-2xl font-bold text-chatx-primary tracking-tight">Chatx</h1>

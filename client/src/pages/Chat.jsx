@@ -441,7 +441,7 @@ export default function Chat() {
                     setSearchQuery={setSearchQuery}
                     updateCurrentUser={setCurrentUser}
                 />
-                <div className="flex-1 flex flex-col relative bg-transparent">
+                <div className={`flex-1 flex-col relative bg-transparent ${!currentChat ? 'hidden lg:flex' : 'flex'}`}>
                     {currentChat ? (
                         <ChatContainer
                             currentChat={currentChat}

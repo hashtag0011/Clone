@@ -675,7 +675,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
                     {onBack && (
                         <button
                             onClick={onBack}
-                            className="p-1.5 rounded-full hover:bg-white/30 transition-colors text-chatx-text-secondary"
+                            className="p-1.5 rounded-full hover:bg-white/30 transition-colors text-chatx-text-secondary lg:hidden block"
                         >
                             <BsArrowLeft className="text-xl" />
                         </button>
@@ -815,16 +815,16 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
                                                     <div className={`w-full min-w-[220px] flex items-center gap-3 py-1 ${isMine ? '' : ''
                                                         }`}>
                                                         {/* Mic icon */}
-                                                        <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${isMine ? 'bg-white/20' : 'bg-chatx-primary/15'
+                                                        <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${isMine ? 'bg-white/20' : 'bg-chatx-primary/15 dark:bg-white/10'
                                                             }`}>
-                                                            <BsMic className={`text-sm ${isMine ? 'text-white/90' : 'text-chatx-primary'}`} />
+                                                            <BsMic className={`text-sm ${isMine ? 'text-white/90' : 'text-chatx-primary dark:text-gray-200'}`} />
                                                         </div>
                                                         {/* Fake waveform bars */}
                                                         <div className="flex items-center gap-[2px] flex-1 h-7">
                                                             {[10, 16, 8, 20, 14, 18, 10, 22, 12, 16, 8, 18, 14, 10, 16].map((h, i) => (
                                                                 <div
                                                                     key={i}
-                                                                    className={`w-[3px] rounded-full flex-shrink-0 ${isMine ? 'bg-white/60' : 'bg-chatx-primary/60'
+                                                                    className={`w-[3px] rounded-full flex-shrink-0 ${isMine ? 'bg-white/60' : 'bg-chatx-primary/60 dark:bg-white/60'
                                                                         }`}
                                                                     style={{ height: `${h}px` }}
                                                                 />
@@ -841,9 +841,13 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
                                                         <button
                                                             onClick={() => {
                                                                 const audio = document.getElementById(`audio-${msg._id}`);
-                                                                if (audio.paused) audio.play(); else audio.pause();
+                                                                if (audio.paused) {
+                                                                    audio.play();
+                                                                } else {
+                                                                    audio.pause();
+                                                                }
                                                             }}
-                                                            className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 transition-colors shadow-sm ${isMine ? 'bg-white/25 hover:bg-white/35 text-white' : 'bg-chatx-primary/20 hover:bg-chatx-primary/30 text-chatx-primary'
+                                                            className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 transition-colors shadow-sm ${isMine ? 'bg-white/25 hover:bg-white/35 text-white' : 'bg-chatx-primary/20 hover:bg-chatx-primary/30 text-chatx-primary dark:bg-white/10 dark:text-white dark:hover:bg-white/20'
                                                                 }`}
                                                             title="Play/Pause"
                                                         >
