@@ -1,5 +1,6 @@
 
 import React, { useEffect, useState, useRef, useCallback } from "react";
+import ReactDOM from "react-dom";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { io } from "socket.io-client";
@@ -363,10 +364,12 @@ export default function Chat() {
             <ToastContainer position="top-right" autoClose={4000} hideProgressBar={false} newestOnTop />
 
             {/* ═══ Incoming Call Full-Screen Dialog ═══ */}
-            {incomingCall && (
+            {/* ⚠️ Rendered via Portal to document.body so it escapes the stacking context
+                caused by filter:blur and transform on .liquid-bg ancestor */}
+            {incomingCall && ReactDOM.createPortal(
                 <div
                     className="fixed inset-0 flex items-end sm:items-center justify-center"
-                    style={{ zIndex: 99999, background: "rgba(0,0,0,0.92)", backdropFilter: "blur(12px)" }}
+                    style={{ zIndex: 99999, background: "rgba(0,0,0,0.92)", backdropFilter: "blur(12px)", fontFamily: "'Inter', sans-serif" }}
                 >
                     {/* Animated gradient bg */}
                     <div
@@ -429,7 +432,8 @@ export default function Chat() {
                             </div>
                         </div>
                     </div>
-                </div>
+                </div>,
+                document.body   // ← Portal target: renders outside all stacking contexts
             )}
 
             {/* ═══ Main Chat Layout ═══ */}
