@@ -72,7 +72,12 @@ function _ringBeep(ctx, freq1, freq2, startTime, duration) {
 }
 
 export const playRingtone = () => {
-    if (ringtoneTimer) return; // already ringing
+    // Force-stop any leftover ringtone before starting fresh
+    if (ringtoneTimer) {
+        clearInterval(ringtoneTimer.timerId);
+        ringtoneTimer.active = false;
+        ringtoneTimer = null;
+    }
 
     const ctx = getCtx();
     if (!ctx) return;

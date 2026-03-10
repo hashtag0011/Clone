@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useRef } from "react";
+import ReactDOM from "react-dom";
 import ChatInput from "./ChatInput";
 import axios from "axios";
 import { BsArrowLeft, BsThreeDots, BsTrash, BsReply, BsX, BsCheckLg, BsTelephone, BsCameraVideo, BsTelephoneX, BsMicMute, BsMic, BsCameraVideoOff } from "react-icons/bs";
@@ -580,7 +581,8 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
             <ToastContainer />
 
             {/* ═══ Active Call Full-Screen Popup ═══ */}
-            {callActive && (
+            {/* Rendered via Portal to escape filter/transform stacking context on .liquid-bg */}
+            {callActive && ReactDOM.createPortal(
                 <div
                     className="call-overlay"
                     style={{
@@ -588,6 +590,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
                         display: "flex", flexDirection: "column",
                         alignItems: "center", justifyContent: "center",
                         background: "rgba(0,0,0,0.92)",
+                        fontFamily: "'Inter', sans-serif",
                     }}
                 >
                     {/* Gradient background */}
@@ -719,7 +722,8 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
                             )}
                         </div>
                     )}
-                </div>
+                </div>,
+                document.body  // ← Portal escapes filter/transform stacking context
             )}
 
 
