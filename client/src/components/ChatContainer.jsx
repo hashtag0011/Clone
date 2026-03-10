@@ -7,8 +7,21 @@ import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import playSound from "../utils/sounds";
 import Peer from "simple-peer";
+import { cacheMessageLocal, cacheMessagesBatchLocal, loadCachedMessages } from "../utils/indexedDB";
+import { encryptMessage, decryptMessage } from "../utils/encryption";
 
 const API = import.meta.env.VITE_API_URL || "";
+
+// 🔐 Async decrypt component — safely uses hooks outside of map()
+function DecryptedText({ text, conversationId, className }) {
+    const [display, setDisplay] = React.useState("");
+    React.useEffect(() => {
+        let active = true;
+        decryptMessage(text, conversationId).then((v) => { if (active) setDisplay(v); });
+        return () => { active = false; };
+    }, [text, conversationId]);
+    return <span className={className}>{display || text}</span>;
+}
 
 export default function ChatContainer({ currentChat, currentUser, socket, onlineUsers, typingUsers, refreshConversations, onBack, callActiveProp: callActive, setCallActiveProp: setCallActive }) {
     const [messages, setMessages] = useState([]);
@@ -38,22 +51,44 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
 
     const getAvatarUrl = (user) => {
         if (user.avatarImage) {
+            if (user.avatarImage.startsWith('http')) return user.avatarImage;
             return `${API}/images/${user.avatarImage}`;
         }
         return `https://api.multiavatar.com/${user.username}.png`;
+    };
+
+    const getAppMediaUrl = (url) => {
+        if (!url) return "";
+        if (url.startsWith('http')) return url;
+        return `${API}/images/${url}`;
     };
 
     // Fetch conversation data
     useEffect(() => {
         const fetchData = async () => {
             if (!currentChat || !currentUser) return;
+
+            // 1. Try to load cached messages first for INSTANT UI
+            const cachedMsgs = await loadCachedMessages();
+            if (cachedMsgs && cachedMsgs.length > 0) {
+                // Filter cached msgs for this current chat conversation
+                const chatCached = cachedMsgs.filter(m => m.conversationId === conversation?._id || (m.sender === currentUser._id && m.receiverId === currentChat._id) || (m.sender === currentChat._id && m.receiverId === currentUser._id));
+                if (chatCached.length > 0) {
+                    setMessages(chatCached);
+                }
+            }
+
             try {
                 const res = await axios.get(`${API}/api/conversations/find/${currentUser._id}/${currentChat._id}`);
                 setConversation(res.data);
                 if (res.data) {
                     const msgs = await axios.get(`${API}/api/messages/${res.data._id}`);
                     const filtered = msgs.data.filter(m => !(m.deletedFor || []).includes(currentUser._id));
+
+                    // 2. Set fetched messages & Cache them
                     setMessages(filtered);
+                    cacheMessagesBatchLocal(filtered);
+
                     await axios.put(`${API}/api/messages/read/${res.data._id}/${currentUser._id}`);
                     if (socket) {
                         const otherMember = res.data.members.find(m => m !== currentUser._id);
@@ -77,7 +112,9 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
         if (!socket) return;
         const handler = (data) => {
             if (currentChat && data.senderId === currentChat._id) {
-                setMessages((prev) => [...prev, { ...data, status: "delivered" }]);
+                const newMsg = { ...data, status: "delivered" };
+                setMessages((prev) => [...prev, newMsg]);
+                cacheMessageLocal(newMsg); // Cache incoming message
                 playSound("receive");
 
                 if (conversation) {
@@ -418,12 +455,18 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
             } catch (err) { console.error(err); return; }
         }
         try {
+            // 🔐 Encrypt text before sending (E2EE: Section 6)
+            const encryptedText = (fileType === 'text' || fileType === 'call') && text
+                ? await encryptMessage(text, convId)
+                : text;
+
             const msgData = {
-                conversationId: convId, sender: currentUser._id, text, fileUrl, fileType,
+                conversationId: convId, sender: currentUser._id, text: encryptedText, fileUrl, fileType,
                 replyTo: replyTo ? { _id: replyTo._id, text: replyTo.text, sender: replyTo.sender, senderName: replyTo.sender === currentUser._id ? currentUser.username : currentChat.username } : null,
             };
             const res = await axios.post(`${API}/api/messages`, msgData);
             setMessages((prev) => [...prev, res.data]);
+            cacheMessageLocal(res.data); // Cache outgoing message
             if (socket) {
                 socket.emit("sendMessage", { ...res.data, senderId: currentUser._id, receiverId: currentChat._id, senderName: currentUser.username });
             }
@@ -799,17 +842,17 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
                                             <div className="mb-1 cursor-pointer">
                                                 {msg.fileType === "image" ? (
                                                     <img
-                                                        src={`${API}/images/${msg.fileUrl}`}
+                                                        src={getAppMediaUrl(msg.fileUrl)}
                                                         alt="Media"
                                                         className="rounded-lg max-w-full max-h-[300px] object-cover"
-                                                        onClick={() => openMedia(`${API}/images/${msg.fileUrl}`)}
+                                                        onClick={() => openMedia(getAppMediaUrl(msg.fileUrl))}
                                                         onError={(e) => {
                                                             e.target.style.display = 'none';
                                                             e.target.parentElement.innerHTML = `<span class="text-xs text-red-400">Failed to load image</span>`;
                                                         }}
                                                     />
                                                 ) : msg.fileType === "video" ? (
-                                                    <video src={`${API}/images/${msg.fileUrl}`} controls className="rounded-lg max-w-full" />
+                                                    <video src={getAppMediaUrl(msg.fileUrl)} controls className="rounded-lg max-w-full" />
                                                 ) : msg.fileType === "audio" ? (
                                                     // ── Voice Message Bubble ──────────────────────────────
                                                     <div className={`w-full min-w-[220px] flex items-center gap-3 py-1 ${isMine ? '' : ''
@@ -832,7 +875,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
                                                         </div>
                                                         {/* Native audio (hidden controls, just source) */}
                                                         <audio
-                                                            src={`${API}/images/${msg.fileUrl}`}
+                                                            src={getAppMediaUrl(msg.fileUrl)}
                                                             id={`audio-${msg._id}`}
                                                             preload="metadata"
                                                             className="hidden"
@@ -855,7 +898,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
                                                         </button>
                                                     </div>
                                                 ) : msg.fileType === "file" ? (
-                                                    <a href={`${API}/images/${msg.fileUrl}`} target="_blank" rel="noreferrer" download className={`flex items-center gap-3 p-3 rounded-xl ${isMine ? 'bg-white/10' : 'bg-white/40'} hover:opacity-80 transition-opacity`}>
+                                                    <a href={getAppMediaUrl(msg.fileUrl)} target="_blank" rel="noreferrer" download className={`flex items-center gap-3 p-3 rounded-xl ${isMine ? 'bg-white/10' : 'bg-white/40'} hover:opacity-80 transition-opacity`}>
                                                         <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${isMine ? 'bg-white/20' : 'bg-chatx-primary/10'}`}>
                                                             <span className="text-lg">📄</span>
                                                         </div>
@@ -865,11 +908,18 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
                                                         </div>
                                                     </a>
                                                 ) : (
-                                                    <a href={`${API}/images/${msg.fileUrl}`} target="_blank" rel="noreferrer" className="flex items-center gap-2 underline">📎 Attachment</a>
+                                                    <a href={getAppMediaUrl(msg.fileUrl)} target="_blank" rel="noreferrer" className="flex items-center gap-2 underline">📎 Attachment</a>
                                                 )}
                                             </div>
-                                        ) : msg.text ? (
-                                            <p className="text-[15px] leading-relaxed">{msg.text}</p>
+                                        ) : msg.text && !msg.deletedForEveryone ? (
+                                            // 🔐 Use DecryptedText for E2EE display
+                                            <DecryptedText
+                                                text={msg.text}
+                                                conversationId={msg.conversationId || conversation?._id}
+                                                className="text-[15px] leading-relaxed"
+                                            />
+                                        ) : msg.deletedForEveryone ? (
+                                            <p className="text-[15px] leading-relaxed italic opacity-70">{msg.text}</p>
                                         ) : null}
                                     </div>
                                 </div>

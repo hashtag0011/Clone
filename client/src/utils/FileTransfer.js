@@ -33,7 +33,7 @@ class FileTransfer {
 
         // 4. Send Request
         try {
-            await axios.post(`${API}/api/upload`, formData, {
+            const res = await axios.post(`${API}/api/upload`, formData, {
                 headers: { "Content-Type": "multipart/form-data" },
                 onUploadProgress: (progressEvent) => {
                     if (onProgress) {
@@ -43,7 +43,9 @@ class FileTransfer {
                 },
             });
 
-            return { fileName, fileType };
+            // Res.data should include mediaUrl from AWS S3 (or fileName as fallback)
+            const finalUrl = res.data.mediaUrl || fileName;
+            return { fileName: finalUrl, fileType };
         } catch (error) {
             console.error("FileTransfer Error:", error);
             throw error;
