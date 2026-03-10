@@ -463,13 +463,16 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
             } catch (err) { console.error(err); return; }
         }
         try {
-            // 🔐 Encrypt text before sending (E2EE: Section 6)
-            const encryptedText = (fileType === 'text' || fileType === 'call') && text
+            // 🔐 Only encrypt plain text messages (E2EE: Section 6)
+            // Call, audio, image, video, file messages are NOT encrypted
+            const encryptedText = fileType === 'text' && text
                 ? await encryptMessage(text, convId)
                 : text;
 
             const msgData = {
                 conversationId: convId, sender: currentUser._id, text: encryptedText, fileUrl, fileType,
+                // Store call variant so card rendering doesn't need to parse text
+                ...(fileType === 'call' ? { callVariant: text.includes('Video') ? 'video' : 'audio' } : {}),
                 replyTo: replyTo ? { _id: replyTo._id, text: replyTo.text, sender: replyTo.sender, senderName: replyTo.sender === currentUser._id ? currentUser.username : currentChat.username } : null,
             };
             const res = await axios.post(`${API}/api/messages`, msgData);
@@ -803,19 +806,19 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
                                         {/* Direction icon */}
                                         <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${isMine ? 'bg-chatx-primary/15' : 'bg-emerald-400/15'
                                             }`}>
-                                            {msg.text.includes("Video")
+                                            {(msg.callVariant === 'video' || msg.text?.includes("Video"))
                                                 ? <BsCameraVideo className={`text-sm ${isMine ? 'text-chatx-primary' : 'text-emerald-500'}`} />
                                                 : <BsTelephone className={`text-sm ${isMine ? 'text-chatx-primary' : 'text-emerald-500'}`} />}
                                         </div>
                                         <div className="flex flex-col min-w-0">
                                             <span className="text-chatx-text font-semibold text-[13px]">
-                                                {isMine ? '↗ Outgoing' : '↙ Incoming'} {msg.text.includes("Video") ? 'Video' : 'Audio'} call
+                                                {isMine ? '↗ Outgoing' : '↙ Incoming'} {(msg.callVariant === 'video' || msg.text?.includes("Video")) ? 'Video' : 'Audio'} call
                                             </span>
                                             <span className="text-[11px] text-chatx-text-secondary">{formatTime(msg.createdAt)}</span>
                                         </div>
                                         {/* Call-back button */}
                                         <button
-                                            onClick={() => initiateCall(msg.text.includes("Video") ? "video" : "audio")}
+                                            onClick={() => initiateCall((msg.callVariant === 'video' || msg.text?.includes("Video")) ? "video" : "audio")}
                                             className={`ml-1 w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 transition-colors ${isMine
                                                 ? 'bg-chatx-primary/15 hover:bg-chatx-primary/30 text-chatx-primary'
                                                 : 'bg-emerald-400/15 hover:bg-emerald-400/30 text-emerald-500'
