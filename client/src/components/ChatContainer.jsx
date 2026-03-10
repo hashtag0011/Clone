@@ -46,6 +46,12 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
     const connectionRef = useRef(null);
     const pendingSignalsRef = useRef([]);
 
+    // Refs to avoid stale closures in socket handlers
+    const currentChatRef = useRef(currentChat);
+    const conversationRef = useRef(conversation);
+    useEffect(() => { currentChatRef.current = currentChat; }, [currentChat]);
+    useEffect(() => { conversationRef.current = conversation; }, [conversation]);
+
     const isOnline = onlineUsers.some((u) => u.userId === currentChat._id);
     const isTyping = typingUsers.includes(currentChat._id);
 
@@ -107,21 +113,23 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
         fetchData();
     }, [currentChat, currentUser]);
 
-    // Socket listeners
+    // Socket listeners — use refs to avoid stale closures
     useEffect(() => {
         if (!socket) return;
         const handler = (data) => {
-            if (currentChat && data.senderId === currentChat._id) {
-                const newMsg = { ...data, status: "delivered" };
+            const chat = currentChatRef.current;
+            const conv = conversationRef.current;
+            if (chat && data.senderId === chat._id) {
+                const newMsg = { ...data, status: "delivered", conversationId: data.conversationId || conv?._id };
                 setMessages((prev) => [...prev, newMsg]);
                 cacheMessageLocal(newMsg); // Cache incoming message
                 playSound("receive");
 
-                if (conversation) {
-                    axios.put(`${API}/api/messages/read/${conversation._id}/${currentUser._id}`).catch(console.error);
+                if (conv) {
+                    axios.put(`${API}/api/messages/read/${conv._id}/${currentUser._id}`).catch(console.error);
                     socket.emit("markAsRead", {
-                        conversationId: conversation._id,
-                        senderId: currentChat._id,
+                        conversationId: conv._id,
+                        senderId: chat._id,
                         receiverId: currentUser._id,
                     });
                 }
@@ -129,7 +137,7 @@ export default function ChatContainer({ currentChat, currentUser, socket, online
         };
         socket.on("getMessage", handler);
         return () => { socket.off("getMessage", handler); };
-    }, [socket, currentChat, conversation, currentUser]);
+    }, [socket, currentUser]); // ← intentionally omit currentChat/conversation — handled via refs
 
     // Read receipts & deletion
     useEffect(() => {

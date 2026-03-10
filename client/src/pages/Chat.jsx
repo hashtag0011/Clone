@@ -266,6 +266,7 @@ export default function Chat() {
             }
 
             // In-app toast (single, replacing)
+            const previewText = data.fileUrl ? "📎 Sent a file" : data.fileType === "audio" ? "🎤 Voice message" : "💬 New message";
             toast(
                 <div onClick={() => { if (sender) setCurrentChat(sender); }} className="cursor-pointer flex items-center gap-3">
                     <div className="w-9 h-9 rounded-full flex-shrink-0 bg-indigo-500 flex items-center justify-center text-white font-bold text-sm">
@@ -273,7 +274,7 @@ export default function Chat() {
                     </div>
                     <div className="min-w-0">
                         <p className="font-bold text-sm text-gray-900 dark:text-white">{senderName}</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{data.text || "Sent a file"}</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{previewText}</p>
                     </div>
                 </div>,
                 {
@@ -325,16 +326,21 @@ export default function Chat() {
             }
         }
 
-        // Always set current chat to caller so ChatContainer mounts and handles media
+        // 1. Set current chat so ChatContainer mounts
         setCurrentChat(caller);
+        setIncomingCall(null);
 
-        setCallActive({
+        // 2. Wait one render cycle for ChatContainer to mount, THEN set callActive
+        // This ensures ChatContainer's useEffect for WebRTC fires AFTER it is in the DOM
+        const callData = {
             type: incomingCall.callType,
             direction: 'incoming',
             callerId: incomingCall.senderId,
             signal: incomingCall.signal
-        });
-        setIncomingCall(null);
+        };
+        setTimeout(() => {
+            setCallActive(callData);
+        }, 150);
     };
 
     const rejectCall = () => {
